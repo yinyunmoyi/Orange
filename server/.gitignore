@@ -1,0 +1,19 @@
+# 环境变量 / 密钥配置（含大模型 API Key），切勿提交
+.env
+.env.*
+!.env.example
+
+# Go 编译产物
+/aaa_word
+*.exe
+*.out
+
+# IDE / 编辑器
+.idea/
+.vscode/
+
+# 系统文件
+.DS_Store
+
+# ECDICT 本地词典（~1GB，用户自行下载，不入库）
+data/ecdict/

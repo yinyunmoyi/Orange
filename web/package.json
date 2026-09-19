@@ -1,0 +1,36 @@
+{
+  "name": "my-first-react-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint",
+    "postinstall": "patch-package",
+    "test": "node --test 'src/features/video/**/*.test.js'",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "hls.js": "^1.7.0",
+    "lucide-react": "^1.31.0",
+    "playsvideo": "0.4.7",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1",
+    "srt-parser-2": "^1.2.3"
+  },
+  "overrides": {
+    "playsvideo": {
+      "mediabunny": "1.54.0"
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "patch-package": "^8.0.1",
+    "vite": "^8.1.1"
+  }
+}

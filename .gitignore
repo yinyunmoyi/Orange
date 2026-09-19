@@ -1,0 +1,49 @@
+# Private configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+local.properties
+
+# Editors and agent state
+**/.idea/
+**/.vscode/
+**/.trae/
+**/.dbg/
+**/.e2e/
+.DS_Store
+**/.debug-*
+
+# Android
+android/.gradle/
+android/.kotlin/
+**/build/
+*.apk
+*.aab
+
+# Web
+web/node_modules/
+web/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Go and local runtime data
+server/aaa_word
+server/aaa_word.exe
+server/refreshaudio
+server/*.test
+server/data/
+server/*.db
+server/*.sqlite*
+server/words.csv
+server/todoItems.txt
+server/favorite_import_failures_*.csv
+server/*.log
+
+# Runtime media and logs outside server/data
+data/
+logs/
+*.log

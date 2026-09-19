@@ -1,0 +1,27 @@
+--- a/node_modules/playsvideo/dist/pipeline/segment-processor.js
++++ b/node_modules/playsvideo/dist/pipeline/segment-processor.js
+@@ -27,8 +27,9 @@
+     checkAbort(signal);
+     // Stage 2: Collect audio packets
+     const tAud = performance.now();
++    const audioStartSec = getSegmentAudioStartSec(seg.startSec, videoPackets);
+     let audioPackets = config.audioSink
+-        ? await collectPacketsInRange(config.audioSink, seg.startSec, endSec)
++        ? await collectPacketsInRange(config.audioSink, audioStartSec, endSec)
+         : [];
+     log(`seg ${index} audio-collect ${elapsed(tAud)} pkts=${audioPackets.length}`);
+     checkAbort(signal);
+@@ -76,4 +77,11 @@
+         audioDecoderConfig,
+     };
+ }
+-//# sourceMappingURL=segment-processor.js.map
+\ No newline at end of file
++export function getSegmentAudioStartSec(segmentStartSec, videoPackets) {
++    const videoStartSec = videoPackets.reduce((min, packet) => Number.isFinite(packet.timestamp) ? Math.min(min, packet.timestamp) : min, Infinity);
++    if (!Number.isFinite(videoStartSec) || videoStartSec >= segmentStartSec) {
++        return segmentStartSec;
++    }
++    return Math.max(0, videoStartSec);
++}
++//# sourceMappingURL=segment-processor.js.map

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.86"
+        android:scaleY="0.86">
+
+        <!-- 橘子果实主体 -->
+        <path
+            android:pathData="M54,62 m-28,0 a28,28 0 1,0 56,0 a28,28 0 1,0 -56,0"
+            android:fillColor="#F57C00" />
+
+        <!-- 橘子外圈阴影(下方深色弧线,增加立体感) -->
+        <path
+            android:pathData="M28,66 C 32,82 46,90 54,90 C 62,90 76,82 80,66 C 74,74 66,78 54,78 C 42,78 34,74 28,66 Z"
+            android:fillColor="#EF6C00" />
+
+        <!-- 高光(左上方椭圆) -->
+        <path
+            android:pathData="M42,50 m-8,-5 a10,5 0 1,0 20,0 a10,5 0 1,0 -20,0"
+            android:fillColor="#FFB74D" />
+
+        <!-- 叶柄 -->
+        <path
+            android:pathData="M52,34 L56,34 L55,26 L53,26 Z"
+            android:fillColor="#5D4037" />
+
+        <!-- 左侧叶片 -->
+        <path
+            android:pathData="M54,30 C 46,24 38,26 34,32 C 42,36 50,34 54,30 Z"
+            android:fillColor="#43A047" />
+
+        <!-- 右侧叶片(更大,主叶) -->
+        <path
+            android:pathData="M54,28 C 60,18 72,16 78,22 C 76,32 66,36 54,28 Z"
+            android:fillColor="#2E7D32" />
+
+        <!-- 叶片高光/纹理 -->
+        <path
+            android:pathData="M58,24 L74,20"
+            android:strokeColor="#66BB6A"
+            android:strokeWidth="1" />
+    </group>
+</vector>
