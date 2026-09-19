@@ -45,9 +45,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.orange.R
+import com.example.orange.data.standalone.ReaderDataRepository
 import com.example.orange.data.word.SentenceAnalysis
 import com.example.orange.data.word.SentenceChunk
-import com.example.orange.data.word.WordApi
 import com.example.orange.ui.components.LoadingDots
 import kotlinx.coroutines.launch
 
@@ -72,10 +72,11 @@ fun SentenceAnalyzeScreen(
     var favoriting by remember(sentence) { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val dataSource = remember(sentence) { ReaderDataRepository.capture() }
 
     LaunchedEffect(sentence) {
         launch {
-            analyzeState = WordApi.analyzeSentence(sentence).fold(
+            analyzeState = dataSource.analyzeSentence(sentence).fold(
                 onSuccess = { LoadState.Success(it) },
                 onFailure = {
                     Log.w(
@@ -89,7 +90,7 @@ fun SentenceAnalyzeScreen(
         }
         launch {
             val buf = StringBuilder()
-            WordApi.translateSentenceStream(
+            dataSource.translateSentenceStream(
                 sentence = sentence,
                 onDelta = { d ->
                     buf.append(d)
@@ -111,7 +112,7 @@ fun SentenceAnalyzeScreen(
         }
         launch {
             favoriteStatusLoading = true
-            WordApi.sentenceFavoriteStatus(sentence).fold(
+            dataSource.sentenceFavoriteStatus(sentence).fold(
                 onSuccess = {
                     favorited = it.favorited
                     favoriteStatusLoading = false
@@ -149,7 +150,7 @@ fun SentenceAnalyzeScreen(
                         if (canFavorite) {
                             favoriting = true
                             scope.launch {
-                                WordApi.favoriteSentence(sentence, completedTranslation).fold(
+                                dataSource.favoriteSentence(sentence, completedTranslation).fold(
                                     onSuccess = {
                                         favorited = true
                                         favoriting = false

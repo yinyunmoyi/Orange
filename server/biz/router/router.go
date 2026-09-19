@@ -64,6 +64,11 @@ func Register(h *server.Hertz) {
 		audioSync.GET("/items/:itemType/:audioKey", handler.AudioSyncFile)
 	}
 
+	standaloneSync := h.Group("/api/v1/standalone-sync")
+	{
+		standaloneSync.POST("/favorites", handler.SyncStandaloneFavorite)
+	}
+
 	sentenceFavorites := h.Group("/api/v1/sentences/favorites")
 	{
 		sentenceFavorites.POST("", handler.SaveSentenceFavorite)

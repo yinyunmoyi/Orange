@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,13 +41,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.orange.R
+import com.example.orange.data.standalone.StandaloneRepository
+import com.example.orange.data.standalone.mergeStandaloneSentences
 import com.example.orange.data.word.SentenceFavorite
 import com.example.orange.data.word.SentenceTag
 import com.example.orange.data.word.WordApi
 import kotlinx.coroutines.launch
 
 internal fun sentenceFavoriteIdForOpen(item: SentenceFavorite): Long? =
-    item.id.takeIf { it > 0L && item.sentence.isNotBlank() }
+    item.id.takeIf { it > 0L && item.clientId == null && item.sentence.isNotBlank() }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -70,8 +73,18 @@ fun SentenceListScreen(
     var creatingTag by remember { mutableStateOf(false) }
     var createTagError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val standaloneMode by StandaloneRepository.modeEnabled.collectAsState()
+    val standaloneSnapshot by StandaloneRepository.snapshot.collectAsState()
+    val localSentences = standaloneSnapshot.sentenceItems
 
-    LaunchedEffect(tagLoadTick) {
+    LaunchedEffect(tagLoadTick, standaloneMode) {
+        if (standaloneMode) {
+            tags = emptyList()
+            selectedTagIds = emptySet()
+            tagsLoading = false
+            tagError = null
+            return@LaunchedEffect
+        }
         tagsLoading = true
         tagError = null
         WordApi.sentenceTags().fold(
@@ -87,7 +100,15 @@ fun SentenceListScreen(
         tagsLoading = false
     }
 
-    LaunchedEffect(selectedTagIds, sentenceLoadTick) {
+    LaunchedEffect(selectedTagIds, sentenceLoadTick, standaloneMode, localSentences) {
+        if (standaloneMode) {
+            sentenceItems = localSentences
+            sentencesLoading = false
+            sentencesFiltering = false
+            sentencesLoaded = true
+            sentenceError = null
+            return@LaunchedEffect
+        }
         if (sentencesLoaded) {
             sentencesFiltering = true
         } else {
@@ -96,11 +117,20 @@ fun SentenceListScreen(
         sentenceError = null
         WordApi.sentenceFavorites(selectedTagIds).fold(
             onSuccess = {
-                sentenceItems = it.items
+                sentenceItems = if (selectedTagIds.isEmpty()) {
+                    mergeStandaloneSentences(it.items, localSentences)
+                } else {
+                    it.items
+                }
                 sentencesLoaded = true
             },
             onFailure = {
-                sentenceError = it.message ?: it.javaClass.simpleName
+                if (selectedTagIds.isEmpty() && localSentences.isNotEmpty()) {
+                    sentenceItems = localSentences
+                    sentenceError = null
+                } else {
+                    sentenceError = it.message ?: it.javaClass.simpleName
+                }
             },
         )
         sentencesLoading = false
@@ -113,14 +143,16 @@ fun SentenceListScreen(
             TopAppBar(
                 title = { Text("句子") },
                 actions = {
-                    IconButton(onClick = {
-                        createTagError = null
-                        showCreateTag = true
-                    }) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_flag),
-                            contentDescription = "新增标签",
-                        )
+                    if (!standaloneMode) {
+                        IconButton(onClick = {
+                            createTagError = null
+                            showCreateTag = true
+                        }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_flag),
+                                contentDescription = "新增标签",
+                            )
+                        }
                     }
                 },
             )
@@ -197,7 +229,7 @@ fun SentenceListScreen(
                         ) {
                             items(
                                 items = sentenceItems,
-                                key = { it.id },
+                                key = { it.clientId ?: "server-${it.id}" },
                             ) { item ->
                                 SentenceListItem(
                                     item = item,
@@ -295,6 +327,14 @@ private fun SentenceListItem(
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
+        if (item.clientId != null) {
+            Text(
+                text = "未同步",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
         if (item.tags.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),

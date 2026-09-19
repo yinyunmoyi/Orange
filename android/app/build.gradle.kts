@@ -26,6 +26,10 @@ val publicBaseUrl = System.getenv("ANDROID_PUBLIC_BASE_URL")
     ?.takeIf(String::isNotBlank)
     ?: rootEnv["ANDROID_PUBLIC_BASE_URL"]?.takeIf(String::isNotBlank)
     ?: "http://10.0.2.2:8888"
+fun envValue(name: String, default: String = ""): String =
+    System.getenv(name)?.takeIf(String::isNotBlank)
+        ?: rootEnv[name]?.takeIf(String::isNotBlank)
+        ?: default
 
 android {
     namespace = "com.example.orange"
@@ -45,6 +49,24 @@ android {
             "String",
             "ORANGE_PUBLIC_BASE_URL",
             publicBaseUrl.asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "ANDROID_LLM_API_KEY",
+            envValue("ANDROID_LLM_API_KEY", envValue("LLM_API_KEY")).asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "ANDROID_LLM_API_URL",
+            envValue(
+                "ANDROID_LLM_API_URL",
+                envValue("LLM_API_URL", "https://api.deepseek.com/chat/completions"),
+            ).asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "ANDROID_LLM_MODEL",
+            envValue("ANDROID_LLM_MODEL", envValue("LLM_MODEL", "deepseek-v4-pro")).asBuildConfigString(),
         )
     }
 

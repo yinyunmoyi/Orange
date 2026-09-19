@@ -31,6 +31,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.example.orange.R
+import com.example.orange.data.standalone.StandaloneItemType
+import com.example.orange.data.standalone.StandaloneRepository
 import com.example.orange.data.word.WordApi
 import kotlinx.coroutines.launch
 
@@ -83,10 +85,22 @@ fun NoteEditScreen(
                         onClick = {
                             saving = true
                             scope.launch {
-                                WordApi.saveNote(itemType, text, draft).fold(
+                                val saveResult = if (StandaloneRepository.isEnabled()) {
+                                    runCatching {
+                                        StandaloneRepository.saveNote(
+                                            StandaloneItemType.fromWire(itemType),
+                                            text,
+                                            draft,
+                                        )
+                                        draft
+                                    }
+                                } else {
+                                    WordApi.saveNote(itemType, text, draft).map { it.note }
+                                }
+                                saveResult.fold(
                                     onSuccess = {
                                         saving = false
-                                        onSaved(it.note)
+                                        onSaved(it)
                                     },
                                     onFailure = { error ->
                                         Log.e(

@@ -222,9 +222,11 @@ private fun OrangeApp() {
                         AppTab.WORDS -> {
                             WordListScreen(
                                 onItemClick = { item ->
-                                    selectedItemType = item.itemType
-                                    selectedItemId = item.itemId
-                                    selectedItemText = item.text
+                                    if (item.clientId == null && item.itemId > 0L) {
+                                        selectedItemType = item.itemType
+                                        selectedItemId = item.itemId
+                                        selectedItemText = item.text
+                                    }
                                 },
                                 onWordSearch = { word ->
                                     selectedItemType = "word"

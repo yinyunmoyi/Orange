@@ -28,11 +28,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import com.example.orange.data.Book
 import com.example.orange.data.BookRepository
 import com.example.orange.data.EpubImporter
+import com.example.orange.data.standalone.StandaloneRepository
+import com.example.orange.data.standalone.StandaloneSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,6 +78,9 @@ fun BookshelfScreen(
     var importing by remember { mutableStateOf(false) }
     var editMode by rememberSaveable { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<String>() }
+    val standaloneMode by StandaloneRepository.modeEnabled.collectAsState()
+    val standaloneSnapshot by StandaloneRepository.snapshot.collectAsState()
+    val standaloneSyncing by StandaloneRepository.syncInProgress.collectAsState()
 
     LaunchedEffect(editMode) {
         if (!editMode) selectedIds.clear()
@@ -110,8 +117,35 @@ fun BookshelfScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("我的书架") },
+                title = {
+                    Column {
+                        Text("书架")
+                        if (standaloneSyncing || standaloneSnapshot.pendingCount > 0) {
+                            Text(
+                                text = if (standaloneSyncing) {
+                                    "正在同步"
+                                } else {
+                                    "${standaloneSnapshot.pendingCount} 项未同步"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
                 actions = {
+                    Text(
+                        text = "单体模式",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Switch(
+                        checked = standaloneMode,
+                        onCheckedChange = { enabled ->
+                            StandaloneRepository.setEnabled(enabled)
+                            if (!enabled) StandaloneSyncScheduler.enqueue(context)
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
                     TextButton(
                         onClick = { editMode = !editMode },
                         enabled = !importing,

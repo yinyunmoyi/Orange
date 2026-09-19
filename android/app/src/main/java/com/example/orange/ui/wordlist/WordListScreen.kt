@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +45,7 @@ import com.example.orange.data.word.FavoriteGroupSummary
 import com.example.orange.data.word.FavoriteItem
 import com.example.orange.data.word.FavoritePageData
 import com.example.orange.data.word.WordApi
+import com.example.orange.data.standalone.StandaloneRepository
 import com.example.orange.ui.components.WordLevelBadge
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -99,6 +101,9 @@ fun WordListScreen(
     var searchState by remember { mutableStateOf<SearchState>(SearchState.Idle) }
     var searchTick by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+    val standaloneMode by StandaloneRepository.modeEnabled.collectAsState()
+    val standaloneSnapshot by StandaloneRepository.snapshot.collectAsState()
+    val localItems = standaloneSnapshot.wordItems
 
     fun updateGroup(id: String, transform: (FavoriteGroupState) -> FavoriteGroupState) {
         groups = groups.map { if (it.summary.id == id) transform(it) else it }
@@ -127,7 +132,13 @@ fun WordListScreen(
         }
     }
 
-    LaunchedEffect(loadTick) {
+    LaunchedEffect(loadTick, standaloneMode, standaloneSnapshot.pendingCount) {
+        if (standaloneMode) {
+            groups = emptyList()
+            loading = false
+            errorMsg = null
+            return@LaunchedEffect
+        }
         loading = true
         errorMsg = null
         WordApi.favoriteGroups().onSuccess { data ->
@@ -139,7 +150,7 @@ fun WordListScreen(
         }
     }
 
-    LaunchedEffect(queryInput, searchTick) {
+    LaunchedEffect(queryInput, searchTick, standaloneMode, localItems) {
         val trimmed = queryInput.trim()
         if (trimmed.isEmpty()) {
             searchState = SearchState.Idle
@@ -149,17 +160,28 @@ fun WordListScreen(
             searchState = SearchState.Idle
             return@LaunchedEffect
         }
+        val matchedLocal = localItems.filter { it.text.contains(trimmed, ignoreCase = true) }
+        if (standaloneMode) {
+            searchState = SearchState.Success(matchedLocal)
+            return@LaunchedEffect
+        }
         delay(250)
         searchState = SearchState.Loading
         WordApi.favorites(q = trimmed).fold(
             onSuccess = { data ->
                 if (queryInput.trim() == trimmed) {
-                    searchState = SearchState.Success(data.items)
+                    searchState = SearchState.Success(
+                        com.example.orange.data.standalone.mergeStandaloneWords(data.items, matchedLocal),
+                    )
                 }
             },
             onFailure = { t ->
                 if (queryInput.trim() == trimmed) {
-                    searchState = SearchState.Error(t.message ?: t.javaClass.simpleName)
+                    searchState = if (matchedLocal.isNotEmpty()) {
+                        SearchState.Success(matchedLocal)
+                    } else {
+                        SearchState.Error(t.message ?: t.javaClass.simpleName)
+                    }
                 }
             },
         )
@@ -203,7 +225,9 @@ fun WordListScreen(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(
                     onSearch = {
-                        normalizeWordSearchTarget(queryInput)?.let(onWordSearch)
+                        if (!standaloneMode) {
+                            normalizeWordSearchTarget(queryInput)?.let(onWordSearch)
+                        }
                     },
                 ),
                 shape = RoundedCornerShape(24.dp),
@@ -217,12 +241,19 @@ fun WordListScreen(
                     )
                 } else {
                     when {
+                        standaloneMode -> {
+                            PendingWordList(
+                                items = localItems,
+                                emptyText = "还没有未同步的单词或短语",
+                                onItemClick = onItemClick,
+                            )
+                        }
                         loading -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
-                        errorMsg != null -> {
+                        errorMsg != null && localItems.isEmpty() -> {
                             Column(
                                 modifier = Modifier.fillMaxSize(),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -238,7 +269,7 @@ fun WordListScreen(
                                 }
                             }
                         }
-                        groups.isEmpty() -> {
+                        groups.isEmpty() && localItems.isEmpty() -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
                                     text = "还没有收藏单词或短语\n在阅读中选中内容即可收藏",
@@ -252,6 +283,20 @@ fun WordListScreen(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(vertical = 8.dp),
                             ) {
+                                if (localItems.isNotEmpty()) {
+                                    item(key = "pending-header") {
+                                        Text(
+                                            text = "未同步",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                        )
+                                    }
+                                    items(localItems, key = { "pending-${it.clientId}" }) { item ->
+                                        WordItemRow(item = item, onClick = { onItemClick(item) })
+                                    }
+                                    item(key = "pending-divider") { HorizontalDivider() }
+                                }
                                 groups.forEach { group ->
                                     item(key = "header-${group.summary.id}") {
                                         GroupHeader(
@@ -329,6 +374,28 @@ fun WordListScreen(
     }
 }
 
+@Composable
+private fun PendingWordList(
+    items: List<FavoriteItem>,
+    emptyText: String,
+    onItemClick: (FavoriteItem) -> Unit,
+) {
+    if (items.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text = emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(vertical = 8.dp),
+    ) {
+        items(items, key = { it.clientId ?: "${it.itemType}:${it.itemId}" }) { item ->
+            WordItemRow(item = item, onClick = { onItemClick(item) })
+        }
+    }
+}
+
 private val searchQueryPattern = Regex("^[a-zA-Z][a-zA-Z' -]{0,79}$")
 private val singleWordSearchPattern = Regex("^[a-zA-Z][a-zA-Z'-]*$")
 
@@ -397,7 +464,10 @@ private fun SearchResultView(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
-                    items(state.items, key = { "search-${it.itemType}-${it.itemId}" }) { item ->
+                    items(
+                        state.items,
+                        key = { "search-${it.clientId ?: "${it.itemType}-${it.itemId}"}" },
+                    ) { item ->
                         WordItemRow(
                             item = item,
                             onClick = { onItemClick(item) },
@@ -457,7 +527,7 @@ private fun WordItemRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = item.clientId == null && item.itemId > 0L, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .padding(start = 28.dp),
     ) {
@@ -480,6 +550,20 @@ private fun WordItemRow(
                         text = "短语",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
+            if (item.clientId != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                ) {
+                    Text(
+                        text = "未同步",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                     )
                 }

@@ -260,6 +260,18 @@ type ItemActionEvent struct {
 
 func (ItemActionEvent) TableName() string { return "item_action_events" }
 
+// StandaloneSyncReceipt maps a durable client operation to its formal favorite.
+type StandaloneSyncReceipt struct {
+	ID          int64     `gorm:"primaryKey;column:id"`
+	ClientID    string    `gorm:"column:client_id;size:64;not null;uniqueIndex:uk_standalone_sync_client"`
+	PayloadHash string    `gorm:"column:payload_hash;size:64;not null"`
+	ItemType    string    `gorm:"column:item_type;size:16;not null"`
+	ItemID      int64     `gorm:"column:item_id;not null"`
+	CreatedAt   time.Time `gorm:"column:created_at;autoCreateTime"`
+}
+
+func (StandaloneSyncReceipt) TableName() string { return "standalone_sync_receipts" }
+
 // WordGroup 相似单词组
 type WordGroup struct {
 	ID          int64     `gorm:"primaryKey;column:id"`
@@ -285,7 +297,7 @@ func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&Word{}, &WordMeaning{}, &WordAudio{}, &Phrase{}, &PhraseMeaning{}, &SentenceFavorite{}, &SentenceTag{}, &SentenceFavoriteTag{}, &ItemNote{}, &Context{}, &ContextVideo{}, &ContextTask{},
 		&UserItemLearning{}, &LearningSession{}, &UserLearningQueue{}, &LearningSettings{},
-		&ItemActionEvent{},
+		&ItemActionEvent{}, &StandaloneSyncReceipt{},
 		&WordGroup{}, &WordGroupMember{},
 	)
 }

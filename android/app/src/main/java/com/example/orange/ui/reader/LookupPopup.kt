@@ -66,6 +66,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.orange.R
 import com.example.orange.data.audiosync.CachedAudioPlayer
+import com.example.orange.data.standalone.FavoriteReference
+import com.example.orange.data.standalone.ReaderDataRepository
+import com.example.orange.data.standalone.StandaloneItemType
 import com.example.orange.data.word.ChineseMeaning
 import com.example.orange.data.word.Definition
 import com.example.orange.data.word.ExplainData
@@ -107,6 +110,8 @@ fun LookupPopup(
     val context = LocalContext.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
+    val dataSource = remember(state.word, state.isPhrase) { ReaderDataRepository.capture() }
+    val itemType = if (state.isPhrase) StandaloneItemType.PHRASE else StandaloneItemType.WORD
 
     val screenWpx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHpx = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -148,6 +153,7 @@ fun LookupPopup(
 
     var favorited by remember(state.word) { mutableStateOf<Boolean?>(null) }
     var favoritedItemId by remember(state.word) { mutableStateOf<Long?>(null) }
+    var favoriteReference by remember(state.word) { mutableStateOf<FavoriteReference?>(null) }
     var favoriting by remember(state.word) { mutableStateOf(false) }
     var initiallyFavorited by remember(state.word) { mutableStateOf<Boolean?>(null) }
     var resetting by remember(state.word) { mutableStateOf(false) }
@@ -157,11 +163,7 @@ fun LookupPopup(
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(state.word, state.paragraph, state.selectionStart, state.selectionEnd) {
-        val status = if (state.isPhrase) {
-            WordApi.phraseFavoriteStatus(state.word)
-        } else {
-            WordApi.favoriteStatus(state.word)
-        }
+        val status = dataSource.favoriteStatus(itemType, state.word)
         val statusData = status.getOrElse {
             Log.w("LookupPopup", "favoriteStatus failed word=${state.word} err_msg=${it.message}", it)
             favorited = false
@@ -169,14 +171,15 @@ fun LookupPopup(
             if (initiallyFavorited == null) initiallyFavorited = false
             return@LaunchedEffect
         }
-        val newItemId = if (statusData.favorited && statusData.itemId > 0L) statusData.itemId else null
+        val newItemId = statusData.serverId
         favorited = statusData.favorited
         favoritedItemId = newItemId
+        favoriteReference = statusData.takeIf { it.favorited }
         if (initiallyFavorited == null) initiallyFavorited = statusData.favorited
-        if (!statusData.favorited || newItemId == null) return@LaunchedEffect
-        WordApi.recordFavoriteAction(
-            itemType = if (state.isPhrase) "phrase" else "word",
-            itemId = newItemId,
+        if (!statusData.favorited) return@LaunchedEffect
+        dataSource.recordAction(
+            type = itemType,
+            reference = statusData,
             eventId = lookupEventId,
             action = "lookup_opened",
             source = "android_reader",
@@ -196,17 +199,16 @@ fun LookupPopup(
             )
             return@LaunchedEffect
         }
-        val itemType = if (state.isPhrase) "phrase" else "word"
         Log.i(
             "LookupPopup",
-            "context task auto start mode=append word=${state.word} item_id=$newItemId",
+            "context task auto start mode=append word=${state.word}",
         )
-        WordApi.createContextTask(
-            itemType = itemType,
-            itemId = newItemId,
+        dataSource.recordContext(
+            type = itemType,
+            reference = statusData,
             paragraph = state.paragraph,
-            selectionStart = state.selectionStart,
-            selectionEnd = state.selectionEnd,
+            start = state.selectionStart,
+            end = state.selectionEnd,
         ).onSuccess {
             Log.i(
                 "LookupPopup",
@@ -226,7 +228,7 @@ fun LookupPopup(
     LaunchedEffect(state.word, state.isPhrase) {
         noteLoading = true
         noteError = null
-        WordApi.getNote(if (state.isPhrase) "phrase" else "word", state.word).fold(
+        dataSource.getNote(itemType, state.word).fold(
             onSuccess = { note = it.note },
             onFailure = {
                 Log.w("LookupPopup", "note failed word=${state.word} err_msg=${it.message}", it)
@@ -241,7 +243,7 @@ fun LookupPopup(
             english = LoadState.Success(LookupData(state.word, "", emptyList(), emptyList()))
         } else {
             launch {
-                english = WordApi.lookup(state.word).fold(
+                english = dataSource.lookup(state.word).fold(
                     onSuccess = { LoadState.Success(it) },
                     onFailure = {
                         Log.w("LookupPopup", "lookup failed word=${state.word} err_type=${it.javaClass.name} err_msg=${it.message}", it)
@@ -252,7 +254,7 @@ fun LookupPopup(
         }
         launch {
             chinese = if (state.isPhrase) {
-                WordApi.phrase(state.word).fold(
+                dataSource.phrase(state.word).fold(
                     onSuccess = { LoadState.Success(it) },
                     onFailure = {
                         Log.w("LookupPopup", "phrase failed word=${state.word} err_type=${it.javaClass.name} err_msg=${it.message}", it)
@@ -260,7 +262,7 @@ fun LookupPopup(
                     },
                 )
             } else {
-                WordApi.meaning(state.word).fold(
+                dataSource.meaning(state.word).fold(
                     onSuccess = { LoadState.Success(it) },
                     onFailure = {
                         Log.w("LookupPopup", "meaning failed word=${state.word} err_type=${it.javaClass.name} err_msg=${it.message}", it)
@@ -270,11 +272,11 @@ fun LookupPopup(
             }
         }
         launch {
-            explain = WordApi.explain(
+            explain = dataSource.explain(
                 word = state.word,
                 context = state.context,
-                wordStart = state.wordStart,
-                wordEnd = state.wordEnd,
+                start = state.wordStart,
+                end = state.wordEnd,
             ).fold(
                 onSuccess = { LoadState.Success(it) },
                 onFailure = {
@@ -319,14 +321,15 @@ fun LookupPopup(
                     word = state.word,
                     english = english,
                     isPhrase = state.isPhrase,
+                    audioEnabled = !dataSource.standalone,
                     palette = palette,
                     onPlay = { url ->
                         scope.launch {
                             CachedAudioPlayer.play(context, player, url, "LookupAudio")
-                            favoritedItemId?.let { itemId ->
-                                WordApi.recordFavoriteAction(
-                                    itemType = if (state.isPhrase) "phrase" else "word",
-                                    itemId = itemId,
+                            favoriteReference?.let { reference ->
+                                dataSource.recordAction(
+                                    type = itemType,
+                                    reference = reference,
                                     eventId = UUID.randomUUID().toString(),
                                     action = "audio_played",
                                     source = "android_reader",
@@ -350,7 +353,6 @@ fun LookupPopup(
                         }
                         val eng = (english as? LoadState.Success)?.data
                         val zh = (chinese as? LoadState.Success)?.data
-                        val itemType = if (state.isPhrase) "phrase" else "word"
                         val paragraphValid = state.paragraph.isNotBlank() &&
                             state.selectionStart >= 0 &&
                             state.selectionEnd > state.selectionStart
@@ -365,13 +367,13 @@ fun LookupPopup(
                         favoriting = true
                         coroutineScope.launch {
                             val favoriteResult = if (state.isPhrase) {
-                                WordApi.favoritePhrase(state.word, requireNotNull(zh))
+                                dataSource.favoritePhrase(state.word, requireNotNull(zh))
                             } else {
-                                WordApi.favorite(state.word, eng, zh)
+                                dataSource.favoriteWord(state.word, eng, zh)
                             }
                             val favoriteError = favoriteResult.exceptionOrNull()
-                            val itemId = favoriteResult.getOrNull()
-                            if (favoriteError != null || itemId == null) {
+                            val reference = favoriteResult.getOrNull()
+                            if (favoriteError != null || reference == null) {
                                 favoriting = false
                                 Log.w(
                                     "LookupPopup",
@@ -383,9 +385,10 @@ fun LookupPopup(
                             }
 
                             favorited = true
-                            favoritedItemId = itemId
+                            favoriteReference = reference
+                            favoritedItemId = reference.serverId
                             favoriting = false
-                            Log.i("LookupPopup", "favorite ok word=${state.word} item_id=$itemId")
+                            Log.i("LookupPopup", "favorite ok word=${state.word}")
 
                             if (!paragraphValid) {
                                 Log.w(
@@ -398,14 +401,14 @@ fun LookupPopup(
                             }
                             Log.i(
                                 "LookupPopup",
-                                "context task start mode=first-save word=${state.word} item_id=$itemId",
+                                "context task start mode=first-save word=${state.word}",
                             )
-                            WordApi.createContextTask(
-                                itemType = itemType,
-                                itemId = itemId,
+                            dataSource.recordContext(
+                                type = itemType,
+                                reference = reference,
                                 paragraph = state.paragraph,
-                                selectionStart = state.selectionStart,
-                                selectionEnd = state.selectionEnd,
+                                start = state.selectionStart,
+                                end = state.selectionEnd,
                             ).onSuccess {
                                 Log.i(
                                     "LookupPopup",
@@ -423,15 +426,14 @@ fun LookupPopup(
                         }
                     },
                     resetting = resetting,
-                    showReset = initiallyFavorited == true,
+                    showReset = !dataSource.standalone && initiallyFavorited == true,
                     onResetClick = onResetClick@{
                         if (resetting) return@onResetClick
                         val itemId = favoritedItemId
                         if (favorited != true || itemId == null) return@onResetClick
-                        val itemType = if (state.isPhrase) "phrase" else "word"
                         resetting = true
                         coroutineScope.launch {
-                            val result = WordApi.resetFavoriteLearning(itemType, itemId)
+                            val result = WordApi.resetFavoriteLearning(itemType.wireValue, itemId)
                             resetting = false
                             result.onSuccess {
                                 Log.i(
@@ -483,6 +485,7 @@ private fun LookupHeader(
     word: String,
     english: LoadState<LookupData>,
     isPhrase: Boolean,
+    audioEnabled: Boolean,
     palette: ReaderPalette,
     onPlay: (String) -> Unit,
     onRefresh: () -> Unit,
@@ -506,7 +509,7 @@ private fun LookupHeader(
                 color = palette.fg,
                 modifier = Modifier.weight(1f),
             )
-            if (!isPhrase) {
+            if (!isPhrase && audioEnabled) {
                 when (english) {
                     is LoadState.Success -> {
                         val pronunciation = english.data.pronunciations

@@ -6,12 +6,15 @@ import android.os.Bundle
 import com.example.orange.data.audiosync.AudioSyncScheduler
 import com.example.orange.data.contextsync.ContextVideoSyncScheduler
 import com.example.orange.data.logging.AppLog
+import com.example.orange.data.standalone.StandaloneRepository
+import com.example.orange.data.standalone.StandaloneSyncScheduler
 import com.example.orange.data.word.WordServiceConfig
 
 class OrangeApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         WordServiceConfig.init(this)
+        StandaloneRepository.init(this)
         AppLog.init(this)
         registerActivityLifecycleCallbacks(
             object : ActivityLifecycleCallbacks {
@@ -44,6 +47,7 @@ class OrangeApplication : Application() {
         )
         ContextVideoSyncScheduler.start(this)
         AudioSyncScheduler.start(this)
+        StandaloneSyncScheduler.start(this)
     }
 
     override fun onTrimMemory(level: Int) {
