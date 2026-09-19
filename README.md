@@ -2,6 +2,23 @@
 
 Orange 是一个面向英语词汇、句子和视频语境学习的本地应用，包含 Android 客户端、React Web 客户端和 Go 服务端。服务端负责词典、收藏、学习计划、语音合成、视频语境处理与局域网发现。
 
+## 功能预览
+
+<table>
+  <tr>
+    <td width="25%" align="center"><img src="docs/images/sentence-analysis.jpg" alt="句子分析"></td>
+    <td width="25%" align="center"><img src="docs/images/reading-word-lookup.jpg" alt="阅读查词"></td>
+    <td width="25%" align="center"><img src="docs/images/video-context.jpg" alt="视频语境"></td>
+    <td width="25%" align="center"><img src="docs/images/vocabulary-review.jpg" alt="单词学习"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>句子分析</strong></td>
+    <td align="center"><strong>阅读查词</strong></td>
+    <td align="center"><strong>视频语境</strong></td>
+    <td align="center"><strong>单词学习</strong></td>
+  </tr>
+</table>
+
 ## 目录
 
 ```text
