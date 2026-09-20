@@ -34,17 +34,12 @@ func Current() (string, error) {
 }
 
 func loadOrCreate() (string, error) {
-	if configured := strings.TrimSpace(config.Get("CONTEXT_SYNC_SERVER_ID", "")); configured != "" {
-		if !idPattern.MatchString(configured) {
-			return "", fmt.Errorf("invalid CONTEXT_SYNC_SERVER_ID")
-		}
-		return configured, nil
-	}
 	path := config.Get("CONTEXT_SYNC_ID_FILE", "./data/context-sync-server-id")
 	if data, err := os.ReadFile(path); err == nil {
 		if id := strings.TrimSpace(string(data)); idPattern.MatchString(id) {
 			return id, nil
 		}
+		return "", fmt.Errorf("invalid context sync server id file")
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("read context sync server id: %w", err)
 	}

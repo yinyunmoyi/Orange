@@ -44,14 +44,6 @@ server/favorite_import_failures_*.csv
 server/*.log
 
 # Runtime media and logs outside server/data
-data/
-!android/app/src/main/java/com/example/orange/data/
-android/app/src/main/java/com/example/orange/data/*
-!android/app/src/main/java/com/example/orange/data/standalone/
-!android/app/src/main/java/com/example/orange/data/standalone/*.kt
-!android/app/src/test/java/com/example/orange/data/
-android/app/src/test/java/com/example/orange/data/*
-!android/app/src/test/java/com/example/orange/data/standalone/
-!android/app/src/test/java/com/example/orange/data/standalone/*.kt
+/data/
 logs/
 *.log
