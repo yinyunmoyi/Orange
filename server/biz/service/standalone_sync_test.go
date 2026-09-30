@@ -1,9 +1,13 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"aaa_word/biz/db"
+	learningrule "aaa_word/biz/learning"
 	"aaa_word/biz/model"
 )
 
@@ -92,5 +96,87 @@ func TestStandaloneSyncPayloadHashIsStableAndCoversPayload(t *testing.T) {
 	}
 	if first != second || first == third {
 		t.Fatalf("hashes first=%q second=%q changed=%q", first, second, third)
+	}
+}
+
+func TestStandaloneFavoriteAlreadyExists(t *testing.T) {
+	gdb := installActionEventTestDB(t)
+	if err := gdb.Create(&db.Word{Word: "existing"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Create(&db.Phrase{Phrase: "look up"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		req  model.StandaloneFavoriteSyncRequest
+		want bool
+	}{
+		{name: "existing word", req: model.StandaloneFavoriteSyncRequest{ItemType: ContextItemWord, Text: "existing"}, want: true},
+		{name: "new word", req: model.StandaloneFavoriteSyncRequest{ItemType: ContextItemWord, Text: "new"}, want: false},
+		{name: "existing phrase", req: model.StandaloneFavoriteSyncRequest{ItemType: ContextItemPhrase, Text: "look up"}, want: true},
+		{name: "sentence does not reset learning", req: model.StandaloneFavoriteSyncRequest{ItemType: "sentence", Text: "Existing."}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := standaloneFavoriteAlreadyExists(context.Background(), &tt.req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("exists = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResetExistingStandaloneLearningForWordAndPhrase(t *testing.T) {
+	gdb := installActionEventTestDB(t)
+	word := db.Word{Word: "existing"}
+	phrase := db.Phrase{Phrase: "look up"}
+	if err := gdb.Create(&word).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Create(&phrase).Error; err != nil {
+		t.Fatal(err)
+	}
+	reviewedAt := time.Now().Add(-time.Hour)
+	nextReviewAt := time.Now().Add(time.Hour)
+	rows := []db.UserItemLearning{
+		{
+			ItemType: LearningItemWord, ItemID: word.ID, QueuedAt: reviewedAt,
+			LearningStatus: learningrule.StatusLearning, MemoryStage: 3,
+			ReviewSuccessDays: 2, LastReviewedAt: &reviewedAt, NextReviewAt: &nextReviewAt,
+		},
+		{
+			ItemType: LearningItemPhrase, ItemID: phrase.ID, QueuedAt: reviewedAt,
+			LearningStatus: learningrule.StatusMastered, MemoryStage: 5,
+			ReviewSuccessDays: 4, LastReviewedAt: &reviewedAt, NextReviewAt: &nextReviewAt,
+		},
+	}
+	if err := gdb.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := resetExistingStandaloneLearning(context.Background(), ContextItemWord, word.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := resetExistingStandaloneLearning(context.Background(), ContextItemPhrase, phrase.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var resetCount int64
+	if err := gdb.Model(&db.UserItemLearning{}).
+		Where(
+			"learning_status = ? AND memory_stage = 0 AND review_success_days = 0 AND "+
+				"last_reviewed_at IS NULL AND next_review_at IS NULL",
+			learningrule.StatusNotStarted,
+		).
+		Count(&resetCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if resetCount != 2 {
+		t.Fatalf("reset learning rows = %d, want 2", resetCount)
 	}
 }

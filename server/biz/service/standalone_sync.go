@@ -135,6 +135,12 @@ func createStandaloneFavorite(
 	ctx context.Context,
 	req *model.StandaloneFavoriteSyncRequest,
 ) (int64, error) {
+	alreadyFavorited, err := standaloneFavoriteAlreadyExists(ctx, req)
+	if err != nil {
+		return 0, err
+	}
+
+	var itemID int64
 	switch req.ItemType {
 	case ContextItemWord:
 		wordData, lookupErr := LookupWithFallback(req.Text)
@@ -146,27 +152,65 @@ func createStandaloneFavorite(
 			!errors.Is(meaningErr, ErrLLMNotConfigured) {
 			return 0, fmt.Errorf("standalone word meaning: %w", meaningErr)
 		}
-		itemID, _, err := AddFavorite(ctx, &model.FavoriteRequest{
+		itemID, _, err = AddFavorite(ctx, &model.FavoriteRequest{
 			Word: req.Text, WordData: wordData, Meaning: meaning,
 		})
-		return itemID, err
 	case ContextItemPhrase:
-		meaning, err := GetChinesePhraseMeaningContext(ctx, req.Text)
-		if err != nil {
-			return 0, fmt.Errorf("standalone phrase meaning: %w", err)
+		meaning, meaningErr := GetChinesePhraseMeaningContext(ctx, req.Text)
+		if meaningErr != nil {
+			return 0, fmt.Errorf("standalone phrase meaning: %w", meaningErr)
 		}
-		return AddPhraseFavorite(ctx, &model.PhraseFavoriteRequest{
+		itemID, err = AddPhraseFavorite(ctx, &model.PhraseFavoriteRequest{
 			Phrase: req.Text, Meaning: meaning,
 		})
 	case "sentence":
-		data, err := SaveSentenceFavorite(ctx, &model.SentenceFavoriteRequest{
+		var data *model.SentenceFavoriteData
+		data, err = SaveSentenceFavorite(ctx, &model.SentenceFavoriteRequest{
 			Sentence: req.Text, Translation: req.Translation,
 		})
 		if err != nil {
 			return 0, err
 		}
-		return data.ID, nil
+		itemID = data.ID
 	default:
 		return 0, ErrStandaloneSyncInvalid
 	}
+	if err != nil {
+		return 0, err
+	}
+	if alreadyFavorited {
+		if err := resetExistingStandaloneLearning(ctx, req.ItemType, itemID); err != nil {
+			return 0, err
+		}
+	}
+	return itemID, nil
+}
+
+func standaloneFavoriteAlreadyExists(
+	ctx context.Context,
+	req *model.StandaloneFavoriteSyncRequest,
+) (bool, error) {
+	switch req.ItemType {
+	case ContextItemWord:
+		exists, _, _, err := IsFavorited(ctx, req.Text)
+		if err != nil {
+			return false, fmt.Errorf("check standalone word favorite: %w", err)
+		}
+		return exists, nil
+	case ContextItemPhrase:
+		exists, _, err := IsPhraseFavorited(ctx, req.Text)
+		if err != nil {
+			return false, fmt.Errorf("check standalone phrase favorite: %w", err)
+		}
+		return exists, nil
+	default:
+		return false, nil
+	}
+}
+
+func resetExistingStandaloneLearning(ctx context.Context, itemType string, itemID int64) error {
+	if err := ResetFavoriteLearning(ctx, itemType, itemID); err != nil {
+		return fmt.Errorf("reset existing standalone favorite learning: %w", err)
+	}
+	return nil
 }

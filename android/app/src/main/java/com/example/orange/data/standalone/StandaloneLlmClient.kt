@@ -304,24 +304,24 @@ object StandaloneLlmClient {
         return SentenceAnalysis(
             sentence = sentence,
             structure = root.optString("structure", "").trim(),
-            chunks = aligned,
+            chunks = aligned ?: chunks,
         )
     }
 
     private fun alignChunksToSentence(
         sentence: String,
         chunks: List<SentenceChunk>,
-    ): List<SentenceChunk> {
+    ): List<SentenceChunk>? {
         val aligned = mutableListOf<SentenceChunk>()
         var cursor = 0
         for (chunk in chunks) {
             val end = matchIgnoringWhitespace(sentence, cursor, chunk.text)
-                ?: throw IOException("llm sentence chunks do not match source")
+                ?: return null
             aligned += chunk.copy(text = sentence.substring(cursor, end))
             cursor = end
         }
         if (cursor != sentence.length) {
-            throw IOException("llm sentence chunks do not match source")
+            return null
         }
         return aligned
     }

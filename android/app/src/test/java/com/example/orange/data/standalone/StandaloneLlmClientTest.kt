@@ -78,11 +78,16 @@ class StandaloneLlmClientTest {
         assertEquals("Hello  world.", result.chunks.joinToString("") { it.text })
     }
 
-    @Test(expected = java.io.IOException::class)
-    fun parseSentenceAnalysis_rejectsChunksThatDoNotMatchSource() {
-        StandaloneLlmClient.parseSentenceAnalysis(
-            """{"structure":"main","chunks":[{"text":"Changed","type":"main","role":"main","translation":""}]}""",
+    @Test
+    fun parseSentenceAnalysis_keepsGrammarWhenChunksDoNotMatchSource() {
+        val result = StandaloneLlmClient.parseSentenceAnalysis(
+            """{"structure":"主谓结构","chunks":[{"text":"Changed","type":"main","role":"主句","translation":"改变"}]}""",
             "Original",
         )
+
+        assertEquals("Original", result.sentence)
+        assertEquals("主谓结构", result.structure)
+        assertEquals("Changed", result.chunks.single().text)
+        assertEquals("主句", result.chunks.single().role)
     }
 }
