@@ -31,6 +31,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.example.orange.R
+import com.example.orange.data.mode.AppModeRepository
 import com.example.orange.data.standalone.StandaloneItemType
 import com.example.orange.data.standalone.StandaloneRepository
 import com.example.orange.data.word.WordApi
@@ -85,7 +86,7 @@ fun NoteEditScreen(
                         onClick = {
                             saving = true
                             scope.launch {
-                                val saveResult = if (StandaloneRepository.isEnabled()) {
+                                val saveResult = if (AppModeRepository.current().usesLocalData) {
                                     runCatching {
                                         StandaloneRepository.saveNote(
                                             StandaloneItemType.fromWire(itemType),

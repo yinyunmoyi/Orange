@@ -11,12 +11,14 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.orange.data.contextsync.ContextVideoSyncWorker
+import com.example.orange.data.network.NetworkAccessPolicy
 import java.util.concurrent.atomic.AtomicBoolean
 
 object AudioSyncScheduler {
     private val callbackRegistered = AtomicBoolean(false)
 
     fun start(context: Context) {
+        if (!NetworkAccessPolicy.isAllowed()) return
         val appContext = context.applicationContext
         if (!ContextVideoSyncWorker.hasLocalNetworkPermission(appContext)) return
         enqueue(appContext)
@@ -36,6 +38,7 @@ object AudioSyncScheduler {
     }
 
     fun enqueue(context: Context) {
+        if (!NetworkAccessPolicy.isAllowed()) return
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.UNMETERED)
             .setRequiresStorageNotLow(true)

@@ -69,7 +69,6 @@ import com.example.orange.data.audiosync.CachedAudioPlayer
 import com.example.orange.data.standalone.FavoriteReference
 import com.example.orange.data.standalone.ReaderDataRepository
 import com.example.orange.data.standalone.StandaloneItemType
-import com.example.orange.data.word.ChineseMeaning
 import com.example.orange.data.word.Definition
 import com.example.orange.data.word.ExplainData
 import com.example.orange.data.word.LookupData
@@ -239,18 +238,24 @@ fun LookupPopup(
     }
 
     LaunchedEffect(state.word, refreshTick) {
-        if (state.isPhrase) {
-            english = LoadState.Success(LookupData(state.word, "", emptyList(), emptyList()))
-        } else {
-            launch {
-                english = dataSource.lookup(state.word).fold(
-                    onSuccess = { LoadState.Success(it) },
-                    onFailure = {
-                        Log.w("LookupPopup", "lookup failed word=${state.word} err_type=${it.javaClass.name} err_msg=${it.message}", it)
-                        LoadState.Failure("加载失败")
-                    },
-                )
-            }
+        val prepared = dataSource.prepareLookup(
+            text = state.word,
+            isPhrase = state.isPhrase,
+            context = state.context,
+            start = state.wordStart,
+            end = state.wordEnd,
+        )
+        if (prepared.isFailure) {
+            val failure = LoadState.Failure("本地推理失败")
+            english = failure
+            chinese = failure
+            explain = failure
+            Log.w(
+                "LookupPopup",
+                "offline lookup failed word=${state.word}",
+                prepared.exceptionOrNull(),
+            )
+            return@LaunchedEffect
         }
         launch {
             chinese = if (state.isPhrase) {
@@ -266,6 +271,19 @@ fun LookupPopup(
                     onSuccess = { LoadState.Success(it) },
                     onFailure = {
                         Log.w("LookupPopup", "meaning failed word=${state.word} err_type=${it.javaClass.name} err_msg=${it.message}", it)
+                        LoadState.Failure("加载失败")
+                    },
+                )
+            }
+        }
+        if (state.isPhrase) {
+            english = LoadState.Success(LookupData(state.word, "", emptyList(), emptyList()))
+        } else {
+            launch {
+                english = dataSource.lookup(state.word).fold(
+                    onSuccess = { LoadState.Success(it) },
+                    onFailure = {
+                        Log.w("LookupPopup", "lookup failed word=${state.word} err_type=${it.javaClass.name} err_msg=${it.message}", it)
                         LoadState.Failure("加载失败")
                     },
                 )
@@ -667,7 +685,7 @@ private fun LazyListScope.renderChinese(
                 item { InlineEmpty(palette) }
             } else {
                 items(state.data.meanings) { m ->
-                    ChineseRow(m = m, palette = palette)
+                    ChineseRow(text = m.meaning, palette = palette)
                 }
             }
         }
@@ -731,23 +749,13 @@ private fun DefinitionRow(pos: String, text: String, palette: ReaderPalette) {
 }
 
 @Composable
-private fun ChineseRow(m: ChineseMeaning, palette: ReaderPalette) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        if (m.pos.isNotBlank()) {
-            Text(
-                text = m.pos,
-                color = palette.disabledFg,
-                fontSize = 13.sp,
-            )
-            Spacer(Modifier.width(6.dp))
-        }
-        Text(
-            text = m.meaning,
-            color = palette.fg,
-            fontSize = 14.sp,
-            modifier = Modifier.weight(1f),
-        )
-    }
+private fun ChineseRow(text: String, palette: ReaderPalette) {
+    Text(
+        text = text,
+        color = palette.fg,
+        fontSize = 14.sp,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable

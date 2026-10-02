@@ -1,5 +1,6 @@
 package com.example.orange.data.contextsync
 
+import com.example.orange.data.network.NetworkAccessPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -39,7 +40,7 @@ object ContextVideoSyncApi {
         connectTimeout: Int,
         readTimeout: Int,
     ): JSONObject {
-        val connection = URL(urlString).openConnection() as HttpURLConnection
+        val connection = NetworkAccessPolicy.openConnection(URL(urlString))
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = connectTimeout
@@ -58,7 +59,7 @@ object ContextVideoSyncApi {
             }
             return JSONObject(body)
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 }

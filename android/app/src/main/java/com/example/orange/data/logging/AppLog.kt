@@ -6,6 +6,7 @@ import android.net.Network
 import android.os.Build
 import android.os.SystemClock
 import com.example.orange.data.contextsync.ContextSyncPreferences
+import com.example.orange.data.network.NetworkAccessPolicy
 import com.example.orange.data.word.WordServiceConfig
 import org.json.JSONArray
 import org.json.JSONObject
@@ -32,6 +33,7 @@ object AppLog {
         Thread(task, "orange-log-uploader").apply { isDaemon = true }
     }
     private val initialized = AtomicBoolean(false)
+    private val networkCallbackRegistered = AtomicBoolean(false)
     private val fileLock = Any()
     private val appSessionId = UUID.randomUUID().toString()
     private var nextRetryAt = 0L
@@ -93,10 +95,17 @@ object AppLog {
     }
 
     fun flush() {
+        if (!NetworkAccessPolicy.isAllowed()) return
         executor.execute {
             runCatching { flushPending(force = true) }
                 .onFailure { android.util.Log.w("AppLog", "flush failed", it) }
         }
+    }
+
+    fun resumeNetwork() {
+        if (!NetworkAccessPolicy.isAllowed()) return
+        registerNetworkCallback()
+        flush()
     }
 
     private fun enqueue(
@@ -165,6 +174,7 @@ object AppLog {
     }
 
     private fun flushPending(force: Boolean) {
+        if (!NetworkAccessPolicy.isAllowed()) return
         val context = applicationContext ?: return
         val now = SystemClock.elapsedRealtime()
         if (!force && now < nextRetryAt) return
@@ -224,7 +234,7 @@ object AppLog {
         val origins = listOfNotNull(localOrigin, WordServiceConfig.origin).distinct()
         for (origin in origins) {
             val connection = runCatching {
-                URL(origin + UPLOAD_PATH).openConnection() as HttpURLConnection
+                NetworkAccessPolicy.openConnection(URL(origin + UPLOAD_PATH))
             }.getOrNull() ?: continue
             val delivered = try {
                 connection.requestMethod = "POST"
@@ -238,7 +248,7 @@ object AppLog {
             } catch (_: Throwable) {
                 false
             } finally {
-                connection.disconnect()
+                NetworkAccessPolicy.release(connection)
             }
             if (delivered) return true
         }
@@ -268,6 +278,8 @@ object AppLog {
     }
 
     private fun registerNetworkCallback() {
+        if (!NetworkAccessPolicy.isAllowed()) return
+        if (!networkCallbackRegistered.compareAndSet(false, true)) return
         val context = applicationContext ?: return
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         runCatching {
@@ -278,6 +290,8 @@ object AppLog {
                     }
                 },
             )
+        }.onFailure {
+            networkCallbackRegistered.set(false)
         }
     }
 

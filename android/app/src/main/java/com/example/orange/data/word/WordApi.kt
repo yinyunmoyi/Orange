@@ -1,6 +1,7 @@
 package com.example.orange.data.word
 
 import com.example.orange.data.logging.AppLog as Log
+import com.example.orange.data.network.NetworkAccessPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -560,7 +561,7 @@ object WordApi {
         val urlStr = WordServiceConfig.apiBaseUrl + "/sentence/analyze"
         val t0 = System.currentTimeMillis()
         val url = URL(urlStr)
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = NetworkAccessPolicy.openConnection(url)
         var heartbeatCount = 0
         try {
             conn.requestMethod = "POST"
@@ -652,7 +653,7 @@ object WordApi {
             )
             Result.failure(t)
         } finally {
-            runCatching { conn.disconnect() }
+            runCatching { NetworkAccessPolicy.release(conn) }
         }
     }
 
@@ -843,7 +844,7 @@ object WordApi {
         val urlStr = WordServiceConfig.apiBaseUrl + "/sentence/translate"
         val t0 = System.currentTimeMillis()
         val url = URL(urlStr)
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = NetworkAccessPolicy.openConnection(url)
         var deltaCount = 0
         var errorEmitted = false
         try {
@@ -937,7 +938,7 @@ object WordApi {
                 onError(t.message ?: t.javaClass.simpleName)
             }
         } finally {
-            runCatching { conn.disconnect() }
+            runCatching { NetworkAccessPolicy.release(conn) }
         }
     }
 
@@ -1252,7 +1253,7 @@ object WordApi {
 
     private fun deleteJson(urlStr: String): JSONObject {
         val t0 = System.currentTimeMillis()
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        val conn = NetworkAccessPolicy.openConnection(URL(urlStr))
         try {
             conn.requestMethod = "DELETE"
             conn.doInput = true
@@ -1287,7 +1288,7 @@ object WordApi {
             )
             throw t
         } finally {
-            conn.disconnect()
+            NetworkAccessPolicy.release(conn)
         }
     }
 
@@ -1352,7 +1353,7 @@ object WordApi {
     ): JSONObject {
         val t0 = System.currentTimeMillis()
         val url = URL(urlStr)
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = NetworkAccessPolicy.openConnection(url)
         try {
             conn.requestMethod = "GET"
             conn.doInput = true
@@ -1391,7 +1392,7 @@ object WordApi {
             )
             throw t
         } finally {
-            conn.disconnect()
+            NetworkAccessPolicy.release(conn)
         }
     }
 
@@ -1403,7 +1404,7 @@ object WordApi {
     ): JSONObject {
         val t0 = System.currentTimeMillis()
         val url = URL(urlStr)
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = NetworkAccessPolicy.openConnection(url)
         try {
             conn.requestMethod = "POST"
             conn.doOutput = true
@@ -1446,7 +1447,7 @@ object WordApi {
             )
             throw t
         } finally {
-            conn.disconnect()
+            NetworkAccessPolicy.release(conn)
         }
     }
 
@@ -1456,7 +1457,7 @@ object WordApi {
         readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS,
     ): JSONObject {
         val t0 = System.currentTimeMillis()
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        val conn = NetworkAccessPolicy.openConnection(URL(urlStr))
         try {
             conn.requestMethod = "PUT"
             conn.doOutput = true
@@ -1490,7 +1491,7 @@ object WordApi {
             )
             throw t
         } finally {
-            conn.disconnect()
+            NetworkAccessPolicy.release(conn)
         }
     }
 

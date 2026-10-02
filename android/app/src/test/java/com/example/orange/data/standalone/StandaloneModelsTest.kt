@@ -35,7 +35,7 @@ class StandaloneModelsTest {
     }
 
     @Test
-    fun mergeStandaloneWords_prefersRemoteNaturalKey() {
+    fun mergeStandaloneWords_keepsLocalMarkerUntilSyncCleanup() {
         val remote = listOf(FavoriteItem("word", 7, "hello", "", "", "remote"))
         val local = listOf(
             FavoriteItem("word", 0, "HELLO", "", "", "local", clientId = "client-1"),
@@ -44,12 +44,12 @@ class StandaloneModelsTest {
 
         val merged = mergeStandaloneWords(remote, local)
 
-        assertEquals(listOf("look up", "hello"), merged.map { it.text })
-        assertEquals(listOf("client-2", null), merged.map { it.clientId })
+        assertEquals(listOf("HELLO", "look up"), merged.map { it.text })
+        assertEquals(listOf("client-1", "client-2"), merged.map { it.clientId })
     }
 
     @Test
-    fun mergeStandaloneSentences_prefersRemoteNormalizedSentence() {
+    fun mergeStandaloneSentences_keepsLocalMarkerUntilSyncCleanup() {
         val remote = listOf(SentenceFavorite(9, "A sentence.", "remote", ""))
         val local = listOf(
             SentenceFavorite(0, " A  sentence. ", "local", "", clientId = "client-1"),
@@ -58,7 +58,7 @@ class StandaloneModelsTest {
 
         val merged = mergeStandaloneSentences(remote, local)
 
-        assertEquals(listOf("Another.", "A sentence."), merged.map { it.sentence })
+        assertEquals(listOf(" A  sentence. ", "Another."), merged.map { it.sentence })
     }
 
     @Test
@@ -69,5 +69,23 @@ class StandaloneModelsTest {
         val merged = mergeStandaloneSentences(remote, emptyList())
 
         assertEquals(listOf(sentence), merged.map { it.sentence })
+    }
+
+    @Test
+    fun snapshot_countsMappedFavoriteUntilChildrenFinishSyncing() {
+        val favorite = StandaloneFavorite(
+            clientId = "client-1",
+            itemType = StandaloneItemType.WORD,
+            text = "hello",
+            displayJson = "{}",
+            translation = "",
+            createdAt = 1L,
+            syncState = StandaloneSyncState.MAPPED,
+            serverId = 7L,
+            lastError = null,
+            retryCount = 0,
+        )
+
+        assertEquals(1, StandaloneSnapshot(listOf(favorite)).pendingCount)
     }
 }

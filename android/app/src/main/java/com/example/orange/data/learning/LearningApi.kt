@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import com.example.orange.data.logging.AppLog as Log
 import com.example.orange.data.contextsync.ContextSyncPreferences
+import com.example.orange.data.network.NetworkAccessPolicy
 import com.example.orange.data.word.ContextSentence
 import com.example.orange.data.word.parseContextVideos
 import com.example.orange.data.word.WordServiceConfig
@@ -314,7 +315,7 @@ object LearningApi {
         traceId: String? = null,
     ): JSONObject {
         val started = System.currentTimeMillis()
-        val connection = URL(urlString).openConnection() as HttpURLConnection
+        val connection = NetworkAccessPolicy.openConnection(URL(urlString))
         try {
             connection.requestMethod = method
             connection.connectTimeout = connectTimeoutMillis
@@ -341,7 +342,7 @@ object LearningApi {
             Log.e(TAG, "$method error url=$urlString elapsed=${System.currentTimeMillis() - started}ms", error)
             throw error
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 

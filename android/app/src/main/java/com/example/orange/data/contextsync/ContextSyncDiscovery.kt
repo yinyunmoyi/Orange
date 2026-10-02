@@ -6,6 +6,7 @@ import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import com.example.orange.data.word.WordServiceConfig
+import com.example.orange.data.network.NetworkAccessPolicy
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.Inet4Address
@@ -24,6 +25,7 @@ class ContextSyncDiscovery(private val context: Context) {
     private val preferences = ContextSyncPreferences(context)
 
     suspend fun discover(): ContextSyncEndpoint? {
+        NetworkAccessPolicy.requireAllowed()
         val trustedServerId = trustedServerId() ?: return null
         val cachedOrigin = preferences.localOrigin
         if (cachedOrigin != null) {
@@ -50,6 +52,7 @@ class ContextSyncDiscovery(private val context: Context) {
     }
 
     private suspend fun discoverWithNsd(trustedServerId: String): ContextSyncEndpoint? {
+        NetworkAccessPolicy.requireAllowed()
         val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
         val lock = wifi?.createMulticastLock("orange-context-sync")?.apply {
             setReferenceCounted(false)

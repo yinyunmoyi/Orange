@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.orange.R
+import com.example.orange.data.mode.AppModeRepository
 import com.example.orange.data.standalone.StandaloneRepository
 import com.example.orange.data.standalone.mergeStandaloneSentences
 import com.example.orange.data.word.SentenceFavorite
@@ -73,7 +74,8 @@ fun SentenceListScreen(
     var creatingTag by remember { mutableStateOf(false) }
     var createTagError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val standaloneMode by StandaloneRepository.modeEnabled.collectAsState()
+    val appMode by AppModeRepository.mode.collectAsState()
+    val standaloneMode = appMode.usesLocalData
     val standaloneSnapshot by StandaloneRepository.snapshot.collectAsState()
     val localSentences = standaloneSnapshot.sentenceItems
 

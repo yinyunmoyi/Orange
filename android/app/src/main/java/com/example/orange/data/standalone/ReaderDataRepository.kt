@@ -1,5 +1,8 @@
 package com.example.orange.data.standalone
 
+import com.example.orange.data.mode.AppMode
+import com.example.orange.data.mode.AppModeRepository
+import com.example.orange.data.offline.OfflineLlmClient
 import com.example.orange.data.word.ExplainData
 import com.example.orange.data.word.FavoriteStatus
 import com.example.orange.data.word.LookupData
@@ -17,22 +20,50 @@ data class FavoriteReference(
 )
 
 class ReaderDataRepository private constructor(
-    val standalone: Boolean,
+    val mode: AppMode,
+    private val offlineClient: OfflineLlmClient,
 ) {
+    val standalone: Boolean
+        get() = mode.usesLocalData
+
+    suspend fun prepareLookup(
+        text: String,
+        isPhrase: Boolean,
+        context: String,
+        start: Int,
+        end: Int,
+    ): Result<Unit> = if (mode == AppMode.OFFLINE) {
+        offlineClient.prepareLookup(text, isPhrase, context, start, end)
+    } else {
+        Result.success(Unit)
+    }
+
     suspend fun lookup(word: String): Result<LookupData> =
-        if (standalone) StandaloneLlmClient.lookup(word) else WordApi.lookup(word)
+        when (mode) {
+            AppMode.NORMAL -> WordApi.lookup(word)
+            AppMode.STANDALONE -> StandaloneLlmClient.lookup(word)
+            AppMode.OFFLINE -> offlineClient.lookup()
+        }
 
     suspend fun meaning(word: String): Result<MeaningData> =
-        if (standalone) StandaloneLlmClient.meaning(word) else WordApi.meaning(word)
+        when (mode) {
+            AppMode.NORMAL -> WordApi.meaning(word)
+            AppMode.STANDALONE -> StandaloneLlmClient.meaning(word)
+            AppMode.OFFLINE -> offlineClient.meaning()
+        }
 
     suspend fun phrase(phrase: String): Result<MeaningData> =
-        if (standalone) StandaloneLlmClient.phrase(phrase) else WordApi.phrase(phrase)
+        when (mode) {
+            AppMode.NORMAL -> WordApi.phrase(phrase)
+            AppMode.STANDALONE -> StandaloneLlmClient.phrase(phrase)
+            AppMode.OFFLINE -> offlineClient.meaning()
+        }
 
     suspend fun explain(word: String, context: String, start: Int, end: Int): Result<ExplainData> =
-        if (standalone) {
-            StandaloneLlmClient.explain(word, context, start, end)
-        } else {
-            WordApi.explain(word, context, start, end)
+        when (mode) {
+            AppMode.NORMAL -> WordApi.explain(word, context, start, end)
+            AppMode.STANDALONE -> StandaloneLlmClient.explain(word, context, start, end)
+            AppMode.OFFLINE -> offlineClient.explain()
         }
 
     suspend fun favoriteStatus(itemType: StandaloneItemType, text: String): Result<FavoriteReference> {
@@ -150,7 +181,11 @@ class ReaderDataRepository private constructor(
     }
 
     suspend fun analyzeSentence(sentence: String): Result<SentenceAnalysis> =
-        if (standalone) StandaloneLlmClient.analyzeSentence(sentence) else WordApi.analyzeSentence(sentence)
+        when (mode) {
+            AppMode.NORMAL -> WordApi.analyzeSentence(sentence)
+            AppMode.STANDALONE -> StandaloneLlmClient.analyzeSentence(sentence)
+            AppMode.OFFLINE -> offlineClient.analyze(sentence)
+        }
 
     suspend fun translateSentenceStream(
         sentence: String,
@@ -158,10 +193,17 @@ class ReaderDataRepository private constructor(
         onDone: () -> Unit,
         onError: (String) -> Unit,
     ) {
-        if (standalone) {
-            StandaloneLlmClient.translateSentenceStream(sentence, onDelta, onDone, onError)
-        } else {
-            WordApi.translateSentenceStream(sentence, onDelta, onDone, onError)
+        when (mode) {
+            AppMode.NORMAL -> WordApi.translateSentenceStream(sentence, onDelta, onDone, onError)
+            AppMode.STANDALONE ->
+                StandaloneLlmClient.translateSentenceStream(sentence, onDelta, onDone, onError)
+            AppMode.OFFLINE -> offlineClient.translate(sentence).fold(
+                onSuccess = {
+                    onDelta(it)
+                    onDone()
+                },
+                onFailure = { onError(it.message ?: it.javaClass.simpleName) },
+            )
         }
     }
 
@@ -190,6 +232,6 @@ class ReaderDataRepository private constructor(
 
     companion object {
         fun capture(): ReaderDataRepository =
-            ReaderDataRepository(StandaloneRepository.isEnabled())
+            ReaderDataRepository(AppModeRepository.current(), OfflineLlmClient())
     }
 }

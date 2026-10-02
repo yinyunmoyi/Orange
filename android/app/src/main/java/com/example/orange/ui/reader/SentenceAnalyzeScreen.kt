@@ -76,19 +76,6 @@ fun SentenceAnalyzeScreen(
 
     LaunchedEffect(sentence) {
         launch {
-            analyzeState = dataSource.analyzeSentence(sentence).fold(
-                onSuccess = { LoadState.Success(it) },
-                onFailure = {
-                    Log.w(
-                        "SentenceAnalyze",
-                        "analyze failed sentence=${sentence.take(80)} err_type=${it.javaClass.name} err_msg=${it.message}",
-                        it,
-                    )
-                    LoadState.Failure("加载失败")
-                },
-            )
-        }
-        launch {
             val buf = StringBuilder()
             dataSource.translateSentenceStream(
                 sentence = sentence,
@@ -107,6 +94,19 @@ fun SentenceAnalyzeScreen(
                 onError = { msg ->
                     Log.w("SentenceAnalyze", "translate failed sentence=${sentence.take(80)} msg=$msg")
                     translation = TranslationState.Failure("加载失败")
+                },
+            )
+        }
+        launch {
+            analyzeState = dataSource.analyzeSentence(sentence).fold(
+                onSuccess = { LoadState.Success(it) },
+                onFailure = {
+                    Log.w(
+                        "SentenceAnalyze",
+                        "analyze failed sentence=${sentence.take(80)} err_type=${it.javaClass.name} err_msg=${it.message}",
+                        it,
+                    )
+                    LoadState.Failure("加载失败")
                 },
             )
         }
@@ -363,15 +363,16 @@ private fun AnalyzeArea(
         )
         is LoadState.Success -> {
             val chunks = analyzeState.data.chunks
+            val visibleChunks = visibleAnalysisChunks(chunks)
             val structure = analyzeState.data.structure.trim()
-            if (chunks.isEmpty() && structure.isEmpty()) {
+            if (visibleChunks.isEmpty() && structure.isEmpty()) {
                 Text(text = "暂无内容", color = palette.disabledFg, fontSize = 13.sp)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (structure.isNotEmpty()) {
                         StructureSummary(text = structure, palette = palette)
                     }
-                    for (chunk in chunks) {
+                    for (chunk in visibleChunks) {
                         ChunkCard(chunk = chunk, palette = palette, darkMode = darkMode)
                     }
                 }
@@ -379,6 +380,17 @@ private fun AnalyzeArea(
         }
     }
 }
+
+internal fun visibleAnalysisChunks(chunks: List<SentenceChunk>): List<SentenceChunk> =
+    chunks.mapNotNull { chunk ->
+        if (chunk.role != "补齐") {
+            chunk
+        } else if (chunk.text.any(Char::isLetterOrDigit)) {
+            chunk.copy(role = "")
+        } else {
+            null
+        }
+    }
 
 @Composable
 private fun StructureSummary(text: String, palette: ReaderPalette) {

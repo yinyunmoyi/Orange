@@ -1,6 +1,7 @@
 package com.example.orange.data.standalone
 
 import com.example.orange.data.word.WordServiceConfig
+import com.example.orange.data.network.NetworkAccessPolicy
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -94,7 +95,7 @@ internal object StandaloneSyncApi {
         body: JSONObject,
         readTimeoutMs: Int = 30_000,
     ): JSONObject {
-        val connection = URL(url).openConnection() as HttpURLConnection
+        val connection = NetworkAccessPolicy.openConnection(URL(url))
         try {
             connection.requestMethod = method
             connection.doOutput = true
@@ -114,7 +115,7 @@ internal object StandaloneSyncApi {
             if (code !in 200..299) throw IOException("HTTP $code ${text.take(200)}")
             return if (text.isBlank()) JSONObject() else JSONObject(text)
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 }

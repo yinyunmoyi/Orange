@@ -1,5 +1,6 @@
 package com.example.orange.data.contextsync
 
+import com.example.orange.data.network.NetworkAccessPolicy
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -34,7 +35,7 @@ internal object ContextVideoDownloader {
         require(path.isSafeApiPath())
         destination.parentFile?.mkdirs()
         destination.delete()
-        val connection = URL(origin + path).openConnection() as HttpURLConnection
+        val connection = NetworkAccessPolicy.openConnection(URL(origin + path))
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 5_000
@@ -63,7 +64,7 @@ internal object ContextVideoDownloader {
             destination.delete()
             throw error
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 }

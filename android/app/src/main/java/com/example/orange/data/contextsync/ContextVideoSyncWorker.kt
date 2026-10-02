@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import com.example.orange.data.logging.AppLog as Log
+import com.example.orange.data.network.NetworkAccessPolicy
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -16,6 +17,7 @@ class ContextVideoSyncWorker(
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
+        if (!NetworkAccessPolicy.isAllowed()) return Result.success()
         if (!hasLocalNetworkPermission(applicationContext)) return Result.success()
         val connectivity = applicationContext.getSystemService(ConnectivityManager::class.java)
         val network = connectivity.activeNetwork ?: return Result.success()

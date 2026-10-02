@@ -1,6 +1,8 @@
 package com.example.orange.data.standalone
 
 import android.content.Context
+import com.example.orange.data.mode.AppMode
+import com.example.orange.data.mode.AppModeRepository
 import com.example.orange.data.word.LookupData
 import com.example.orange.data.word.MeaningData
 import kotlinx.coroutines.Dispatchers
@@ -23,9 +25,6 @@ object StandaloneRepository {
 
     val snapshot: StateFlow<StandaloneSnapshot> = mutableSnapshot.asStateFlow()
     val syncInProgress: StateFlow<Boolean> = mutableSyncInProgress.asStateFlow()
-    val modeEnabled: StateFlow<Boolean>
-        get() = preferences.enabled
-
     fun init(context: Context) {
         if (::localStore.isInitialized) return
         synchronized(this) {
@@ -38,10 +37,21 @@ object StandaloneRepository {
 
     fun isEnabled(): Boolean {
         checkInitialized()
-        return preferences.isEnabled()
+        return AppModeRepository.current() == AppMode.STANDALONE
+    }
+
+    fun usesLocalData(): Boolean {
+        checkInitialized()
+        return AppModeRepository.current().usesLocalData
     }
 
     fun setEnabled(enabled: Boolean) {
+        checkInitialized()
+        AppModeRepository.set(if (enabled) AppMode.STANDALONE else AppMode.NORMAL)
+        setLegacyEnabled(enabled)
+    }
+
+    internal fun setLegacyEnabled(enabled: Boolean) {
         checkInitialized()
         preferences.setEnabled(enabled)
     }
@@ -187,9 +197,7 @@ object StandaloneRepository {
 
     private fun refreshBlocking() {
         mutableSnapshot.value = StandaloneSnapshot(
-            favorites = localStore.listFavorites().filter {
-                it.syncState == StandaloneSyncState.PENDING
-            },
+            favorites = localStore.listFavorites(),
         )
     }
 

@@ -67,7 +67,7 @@ data class StandaloneAction(
 data class StandaloneSnapshot(
     val favorites: List<StandaloneFavorite> = emptyList(),
 ) {
-    val pendingCount: Int get() = favorites.count { it.syncState == StandaloneSyncState.PENDING }
+    val pendingCount: Int get() = favorites.size
 
     val wordItems: List<FavoriteItem>
         get() = favorites.asSequence()
@@ -137,20 +137,20 @@ internal fun mergeStandaloneWords(
     remote: List<FavoriteItem>,
     local: List<FavoriteItem>,
 ): List<FavoriteItem> {
-    val remoteKeys = remote.mapTo(hashSetOf()) {
+    val localKeys = local.mapTo(hashSetOf()) {
         "${it.itemType}:${normalizeStandaloneText(StandaloneItemType.fromWire(it.itemType), it.text)}"
     }
-    return local.filter {
-        "${it.itemType}:${normalizeStandaloneText(StandaloneItemType.fromWire(it.itemType), it.text)}" !in remoteKeys
-    } + remote
+    return local + remote.filter {
+        "${it.itemType}:${normalizeStandaloneText(StandaloneItemType.fromWire(it.itemType), it.text)}" !in localKeys
+    }
 }
 
 internal fun mergeStandaloneSentences(
     remote: List<SentenceFavorite>,
     local: List<SentenceFavorite>,
 ): List<SentenceFavorite> {
-    val remoteKeys = remote.mapTo(hashSetOf()) { standaloneSentenceKey(it.sentence) }
-    return local.filter { standaloneSentenceKey(it.sentence) !in remoteKeys } + remote
+    val localKeys = local.mapTo(hashSetOf()) { standaloneSentenceKey(it.sentence) }
+    return local + remote.filter { standaloneSentenceKey(it.sentence) !in localKeys }
 }
 
 private fun standaloneTopMeaning(displayJson: String): String =

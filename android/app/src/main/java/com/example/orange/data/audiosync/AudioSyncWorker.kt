@@ -8,12 +8,14 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.orange.data.contextsync.ContextSyncDiscovery
 import com.example.orange.data.contextsync.ContextVideoSyncWorker
+import com.example.orange.data.network.NetworkAccessPolicy
 
 class AudioSyncWorker(
     appContext: Context,
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
+        if (!NetworkAccessPolicy.isAllowed()) return Result.success()
         if (!ContextVideoSyncWorker.hasLocalNetworkPermission(applicationContext)) {
             return Result.success()
         }

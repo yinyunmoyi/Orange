@@ -1,5 +1,6 @@
 package com.example.orange.data.audiosync
 
+import com.example.orange.data.network.NetworkAccessPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -24,7 +25,7 @@ object AudioSyncApi {
         target: File,
         expectedBytes: Long? = null,
     ): Long = withContext(Dispatchers.IO) {
-        val connection = URL(urlString).openConnection() as HttpURLConnection
+        val connection = NetworkAccessPolicy.openConnection(URL(urlString))
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 5_000
@@ -59,12 +60,12 @@ object AudioSyncApi {
             if (total <= 0L) throw IOException("empty audio")
             total
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 
     private fun getJson(urlString: String): JSONObject {
-        val connection = URL(urlString).openConnection() as HttpURLConnection
+        val connection = NetworkAccessPolicy.openConnection(URL(urlString))
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 3_000
@@ -80,7 +81,7 @@ object AudioSyncApi {
             if (code !in 200..299) throw IOException("HTTP $code")
             return JSONObject(body)
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 }

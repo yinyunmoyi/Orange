@@ -3,6 +3,8 @@ package com.example.orange.data.standalone
 import android.content.Context
 import com.example.orange.data.contextsync.ContextSyncDiscovery
 import com.example.orange.data.logging.AppLog as Log
+import com.example.orange.data.network.NetworkAccessPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.work.CoroutineWorker
@@ -13,6 +15,7 @@ class StandaloneSyncWorker(
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        if (!NetworkAccessPolicy.isAllowed()) return@withContext Result.success()
         StandaloneRepository.init(applicationContext)
         StandaloneRepository.setSyncInProgress(true)
         try {
@@ -24,12 +27,16 @@ class StandaloneSyncWorker(
             var hadFailure = false
 
             for (initial in store.listFavorites()) {
+                if (!NetworkAccessPolicy.isAllowed()) return@withContext Result.success()
                 var favorite = initial
                 if (favorite.syncState == StandaloneSyncState.PENDING) {
                     val mapping = tryOrigins(origins) {
                         StandaloneSyncApi.syncFavorite(it, favorite)
                     }
                     if (mapping == null) {
+                        if (!NetworkAccessPolicy.isAllowed()) {
+                            return@withContext Result.success()
+                        }
                         store.markFavoriteFailed(favorite.clientId, "favorite sync failed")
                         hadFailure = true
                         continue
@@ -44,6 +51,7 @@ class StandaloneSyncWorker(
 
                 val note = store.getNote(favorite.itemType, favorite.text)
                 if (note != null && note.revision > note.syncedRevision) {
+                    if (!NetworkAccessPolicy.isAllowed()) return@withContext Result.success()
                     val synced = tryOrigins(origins) {
                         StandaloneSyncApi.syncNote(it, favorite, note)
                     } != null
@@ -55,6 +63,7 @@ class StandaloneSyncWorker(
                 }
 
                 for (context in store.pendingContexts(favorite.clientId)) {
+                    if (!NetworkAccessPolicy.isAllowed()) return@withContext Result.success()
                     val synced = tryOrigins(origins) {
                         StandaloneSyncApi.syncContext(it, favorite, context)
                     } != null
@@ -62,6 +71,7 @@ class StandaloneSyncWorker(
                 }
 
                 for (action in store.pendingActions(favorite.clientId)) {
+                    if (!NetworkAccessPolicy.isAllowed()) return@withContext Result.success()
                     val synced = tryOrigins(origins) {
                         StandaloneSyncApi.syncAction(it, favorite, action)
                     } != null
@@ -81,6 +91,8 @@ class StandaloneSyncWorker(
                 preferences.lastSyncAt = System.currentTimeMillis()
                 Result.success()
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             StandaloneRepository.syncPreferences().lastSyncError =
                 error.message?.take(200) ?: error.javaClass.simpleName
@@ -93,6 +105,7 @@ class StandaloneSyncWorker(
 
     private fun <T> tryOrigins(origins: List<String>, request: (String) -> T): T? {
         for (origin in origins) {
+            if (!NetworkAccessPolicy.isAllowed()) return null
             try {
                 return request(origin)
             } catch (error: Throwable) {

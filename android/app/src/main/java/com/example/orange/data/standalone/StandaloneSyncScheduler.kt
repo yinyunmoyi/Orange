@@ -7,15 +7,17 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.example.orange.data.network.NetworkAccessPolicy
 import java.util.concurrent.TimeUnit
 
 object StandaloneSyncScheduler {
     fun start(context: Context) {
         StandaloneRepository.init(context)
-        if (!StandaloneRepository.isEnabled()) enqueue(context)
+        if (NetworkAccessPolicy.isAllowed() && !StandaloneRepository.isEnabled()) enqueue(context)
     }
 
     fun enqueue(context: Context) {
+        if (!NetworkAccessPolicy.isAllowed()) return
         val request = OneTimeWorkRequestBuilder<StandaloneSyncWorker>()
             .setConstraints(
                 Constraints.Builder()

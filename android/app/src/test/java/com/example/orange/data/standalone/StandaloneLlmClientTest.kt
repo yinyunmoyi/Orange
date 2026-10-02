@@ -79,7 +79,7 @@ class StandaloneLlmClientTest {
     }
 
     @Test
-    fun parseSentenceAnalysis_keepsGrammarWhenChunksDoNotMatchSource() {
+    fun parseSentenceAnalysis_replacesHallucinatedChunkWithSourceFill() {
         val result = StandaloneLlmClient.parseSentenceAnalysis(
             """{"structure":"主谓结构","chunks":[{"text":"Changed","type":"main","role":"主句","translation":"改变"}]}""",
             "Original",
@@ -87,7 +87,40 @@ class StandaloneLlmClientTest {
 
         assertEquals("Original", result.sentence)
         assertEquals("主谓结构", result.structure)
-        assertEquals("Changed", result.chunks.single().text)
-        assertEquals("主句", result.chunks.single().role)
+        assertEquals("Original", result.chunks.single().text)
+        assertEquals("other", result.chunks.single().type)
+        assertEquals("补齐", result.chunks.single().role)
+    }
+
+    @Test
+    fun parseSentenceAnalysis_insertsMissingSourceGapAndKeepsFollowingGrammar() {
+        val result = StandaloneLlmClient.parseSentenceAnalysis(
+            """
+            {"structure":"主谓结构","chunks":[
+              {"text":"Alpha","type":"main","role":"主语","translation":"甲"},
+              {"text":"Gamma.","type":"modifier","role":"宾语","translation":"丙"}
+            ]}
+            """.trimIndent(),
+            "Alpha beta Gamma.",
+        )
+
+        assertEquals("Alpha beta Gamma.", result.chunks.joinToString("") { it.text })
+        assertEquals(listOf("main", "other", "modifier"), result.chunks.map { it.type })
+        assertEquals("补齐", result.chunks[1].role)
+    }
+
+    @Test
+    fun parseSentenceAnalysis_locatesChunksIgnoringCaseAndTypography() {
+        val result = StandaloneLlmClient.parseSentenceAnalysis(
+            """
+            {"structure":"主谓结构","chunks":[
+              {"text":"he said “hello”","type":"main","role":"主句","translation":"他说你好"}
+            ]}
+            """.trimIndent(),
+            "He said \"hello\".",
+        )
+
+        assertEquals("He said \"hello\".", result.chunks.joinToString("") { it.text })
+        assertEquals("He said \"hello\"", result.chunks.first().text)
     }
 }

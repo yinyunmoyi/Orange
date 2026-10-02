@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +58,8 @@ import com.example.orange.data.Book
 import com.example.orange.data.BookRepository
 import com.example.orange.data.BookSource
 import com.example.orange.data.logging.AppLog
+import com.example.orange.data.mode.AppMode
+import com.example.orange.data.mode.AppModeRepository
 import com.example.orange.data.ReaderPrefs
 import com.example.orange.ui.note.NoteEditScreen
 import java.io.File
@@ -106,6 +109,8 @@ fun ReaderScreen(
 
     val savedProgress = remember(book.id) { BookRepository.progressOf(book.id) }
     val initialPrefs = remember { BookRepository.getReaderPrefs() }
+    val appMode by AppModeRepository.mode.collectAsState()
+    val offlineMode = appMode == AppMode.OFFLINE
 
     var chapterIndex by rememberSaveable(book.id) {
         val initial = if (isEpub) {
@@ -291,6 +296,7 @@ fun ReaderScreen(
                     LookupWebView(context).apply {
                         settings.allowFileAccess = true
                         settings.javaScriptEnabled = true
+                        settings.blockNetworkLoads = offlineMode
                         onLookupSelection = {
                                 word,
                                 rect,
@@ -365,6 +371,7 @@ fun ReaderScreen(
                     }
                 },
                 update = { webView ->
+                    webView.settings.blockNetworkLoads = offlineMode
                     webView.loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", null)
                 },
             )

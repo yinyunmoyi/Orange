@@ -1,6 +1,7 @@
 package com.example.orange.data.learning
 
 import com.example.orange.data.logging.AppLog as Log
+import com.example.orange.data.network.NetworkAccessPolicy
 import com.example.orange.data.word.WordServiceConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,7 +42,7 @@ object ReviewForecastApi {
 
     private fun getJson(urlString: String): JSONObject {
         val started = System.currentTimeMillis()
-        val connection = URL(urlString).openConnection() as HttpURLConnection
+        val connection = NetworkAccessPolicy.openConnection(URL(urlString))
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 8_000
@@ -63,7 +64,7 @@ object ReviewForecastApi {
             Log.e(TAG, "GET error url=$urlString elapsed=${System.currentTimeMillis() - started}ms", error)
             throw error
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 

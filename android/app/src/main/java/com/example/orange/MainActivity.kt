@@ -17,12 +17,14 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
 import com.example.orange.data.BookRepository
@@ -30,6 +32,9 @@ import com.example.orange.data.audiosync.AudioSyncScheduler
 import com.example.orange.data.contextsync.ContextSyncPreferences
 import com.example.orange.data.contextsync.ContextVideoSyncScheduler
 import com.example.orange.data.learning.LearningApi
+import com.example.orange.data.mode.AppMode
+import com.example.orange.data.mode.AppModeRepository
+import com.example.orange.data.network.NetworkAccessPolicy
 import com.example.orange.data.word.ContextVideo
 import com.example.orange.data.word.WordServiceConfig
 import com.example.orange.ui.bookshelf.BookshelfScreen
@@ -70,6 +75,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestLocalNetworkPermissionOnce() {
+        if (!NetworkAccessPolicy.isAllowed()) return
         if (Build.VERSION.SDK_INT < 37) {
             ContextVideoSyncScheduler.start(applicationContext)
             AudioSyncScheduler.start(applicationContext)
@@ -105,6 +111,7 @@ private fun OrangeApp() {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.WORDS) }
     var selectedSentenceId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedContextVideo by remember { mutableStateOf<ContextVideo?>(null) }
+    val appMode by AppModeRepository.mode.collectAsState()
     val books = BookRepository.books
     val currentBook = currentBookId?.let { id -> books.firstOrNull { it.id == id } }
 
@@ -238,12 +245,18 @@ private fun OrangeApp() {
                             )
                         }
                         AppTab.LEARNING -> {
-                            LearningPlanScreen(
-                                onStartLearning = { sessionId -> learningSessionId = sessionId },
-                                onOpenSettings = { showLearningSettings = true },
-                                bottomPadding = innerPadding.calculateBottomPadding(),
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                            if (appMode == AppMode.OFFLINE) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("离线模式下不可使用学习功能")
+                                }
+                            } else {
+                                LearningPlanScreen(
+                                    onStartLearning = { sessionId -> learningSessionId = sessionId },
+                                    onOpenSettings = { showLearningSettings = true },
+                                    bottomPadding = innerPadding.calculateBottomPadding(),
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
                         AppTab.SENTENCES -> {
                             SentenceListScreen(
@@ -264,7 +277,7 @@ private fun OrangeApp() {
                 }
             }
         }
-        selectedContextVideo?.let { video ->
+        selectedContextVideo?.takeIf { appMode != AppMode.OFFLINE }?.let { video ->
             ContextVideoScreen(
                 video = video,
                 onBack = { selectedContextVideo = null },

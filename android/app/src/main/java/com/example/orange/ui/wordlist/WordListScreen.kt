@@ -45,6 +45,7 @@ import com.example.orange.data.word.FavoriteGroupSummary
 import com.example.orange.data.word.FavoriteItem
 import com.example.orange.data.word.FavoritePageData
 import com.example.orange.data.word.WordApi
+import com.example.orange.data.mode.AppModeRepository
 import com.example.orange.data.standalone.StandaloneRepository
 import com.example.orange.ui.components.WordLevelBadge
 import java.text.SimpleDateFormat
@@ -101,7 +102,8 @@ fun WordListScreen(
     var searchState by remember { mutableStateOf<SearchState>(SearchState.Idle) }
     var searchTick by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
-    val standaloneMode by StandaloneRepository.modeEnabled.collectAsState()
+    val appMode by AppModeRepository.mode.collectAsState()
+    val standaloneMode = appMode.usesLocalData
     val standaloneSnapshot by StandaloneRepository.snapshot.collectAsState()
     val localItems = standaloneSnapshot.wordItems
 

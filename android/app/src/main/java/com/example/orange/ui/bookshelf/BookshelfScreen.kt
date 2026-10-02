@@ -57,9 +57,15 @@ import androidx.compose.ui.unit.sp
 import com.example.orange.data.Book
 import com.example.orange.data.BookRepository
 import com.example.orange.data.EpubImporter
+import com.example.orange.data.mode.AppMode
+import com.example.orange.data.mode.AppModeController
+import com.example.orange.data.mode.AppModeRepository
+import com.example.orange.data.mode.OfflineAutoModeController
+import com.example.orange.data.mode.OfflineAutoModeState
+import com.example.orange.data.offline.OfflineCapabilityRepository
 import com.example.orange.data.standalone.StandaloneRepository
-import com.example.orange.data.standalone.StandaloneSyncScheduler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -78,9 +84,14 @@ fun BookshelfScreen(
     var importing by remember { mutableStateOf(false) }
     var editMode by rememberSaveable { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<String>() }
-    val standaloneMode by StandaloneRepository.modeEnabled.collectAsState()
+    val appMode by AppModeRepository.mode.collectAsState()
+    val standaloneMode = appMode == AppMode.STANDALONE
     val standaloneSnapshot by StandaloneRepository.snapshot.collectAsState()
     val standaloneSyncing by StandaloneRepository.syncInProgress.collectAsState()
+    val offlineAutoModeState by OfflineAutoModeController.state.collectAsState()
+    val offlineCapabilityState by OfflineCapabilityRepository.state.collectAsState()
+    var showOfflineCapabilityDialog by remember { mutableStateOf(false) }
+    var modelSetupJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(editMode) {
         if (!editMode) selectedIds.clear()
@@ -91,7 +102,9 @@ fun BookshelfScreen(
             selectedIds.retainAll { it in validIds }
         }
     }
-
+    LaunchedEffect(appMode) {
+        OfflineAutoModeController.check(context)
+    }
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -112,70 +125,108 @@ fun BookshelfScreen(
             }
         }
     }
-
+    val modelLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) {
+            OfflineCapabilityRepository.modelSelectionCancelled()
+            return@rememberLauncherForActivityResult
+        }
+        showOfflineCapabilityDialog = true
+        modelSetupJob = scope.launch {
+            val imported = OfflineCapabilityRepository.importModel(uri)
+            if (imported.isFailure) return@launch
+            val verified = OfflineCapabilityRepository.verify()
+            if (verified.isSuccess) {
+                OfflineAutoModeController.check(context)
+            }
+        }
+    }
+    val openModelPicker = {
+        OfflineCapabilityRepository.beginModelSelection()
+        modelLauncher.launch(
+            arrayOf(
+                "application/octet-stream",
+                "*/*",
+            ),
+        )
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("书架")
-                        if (standaloneSyncing || standaloneSnapshot.pendingCount > 0) {
-                            Text(
-                                text = if (standaloneSyncing) {
-                                    "正在同步"
-                                } else {
-                                    "${standaloneSnapshot.pendingCount} 项未同步"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    Text(
-                        text = "单体模式",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Switch(
-                        checked = standaloneMode,
-                        onCheckedChange = { enabled ->
-                            StandaloneRepository.setEnabled(enabled)
-                            if (!enabled) StandaloneSyncScheduler.enqueue(context)
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                    TextButton(
-                        onClick = { editMode = !editMode },
-                        enabled = !importing,
-                    ) {
-                        Text(if (editMode) "完成" else "编辑")
-                    }
-                    if (importing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 16.dp)
-                                .size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        TextButton(
-                            onClick = {
-                                launcher.launch(
-                                    arrayOf(
-                                        "application/epub+zip",
-                                        "application/octet-stream",
-                                        "*/*",
-                                    )
+            Column {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("书架")
+                            if (standaloneSyncing || standaloneSnapshot.pendingCount > 0) {
+                                Text(
+                                    text = if (standaloneSyncing) {
+                                        "正在同步"
+                                    } else {
+                                        "${standaloneSnapshot.pendingCount} 项未同步"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                            },
-                        ) {
-                            Text("导入")
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                    actions = {
+                        Text(
+                            text = "单体模式",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        Switch(
+                            checked = standaloneMode,
+                            enabled = appMode != AppMode.OFFLINE,
+                            onCheckedChange = { enabled ->
+                                scope.launch {
+                                    AppModeController.switchTo(
+                                        context,
+                                        if (enabled) AppMode.STANDALONE else AppMode.NORMAL,
+                                    )
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                        TextButton(
+                            onClick = { editMode = !editMode },
+                            enabled = !importing,
+                        ) {
+                            Text(if (editMode) "完成" else "编辑")
+                        }
+                        if (importing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .padding(end = 16.dp)
+                                    .size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    launcher.launch(
+                                        arrayOf(
+                                            "application/epub+zip",
+                                            "application/octet-stream",
+                                            "*/*",
+                                        )
+                                    )
+                                },
+                            ) {
+                                Text("导入")
+                            }
+                        }
+                    },
+                )
+                if (shouldShowOfflineCapabilityBar(offlineAutoModeState)) {
+                    OfflineCapabilityBar(
+                        offlineAutoModeState = offlineAutoModeState,
+                        onConfigure = openModelPicker,
+                    )
+                }
+            }
         },
         bottomBar = {
             if (editMode) {
@@ -227,7 +278,89 @@ fun BookshelfScreen(
             }
         }
     }
+    if (showOfflineCapabilityDialog) {
+        OfflineCapabilityDialog(
+            state = offlineCapabilityState,
+            onDismiss = {
+                modelSetupJob?.cancel()
+                modelSetupJob = null
+                showOfflineCapabilityDialog = false
+            },
+            onRetry = {
+                modelSetupJob?.cancel()
+                modelSetupJob = null
+                showOfflineCapabilityDialog = false
+                openModelPicker()
+            },
+        )
+    }
 }
+
+@Composable
+private fun OfflineCapabilityBar(
+    offlineAutoModeState: OfflineAutoModeState,
+    onConfigure: () -> Unit,
+) {
+    if (!shouldShowOfflineCapabilityBar(offlineAutoModeState)) return
+
+    Surface(tonalElevation = 1.dp) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+            ) {
+                Text("离线模式", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = offlineCapabilityStatusText(offlineAutoModeState),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (offlineAutoModeState == OfflineAutoModeState.FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            if (offlineAutoModeState == OfflineAutoModeState.INITIALIZING) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else if (shouldShowOfflineConfigureButton(offlineAutoModeState)) {
+                TextButton(onClick = onConfigure) {
+                    Text("配置")
+                }
+            }
+        }
+    }
+}
+
+internal fun offlineCapabilityStatusText(
+    offlineAutoModeState: OfflineAutoModeState,
+): String = when {
+    offlineAutoModeState == OfflineAutoModeState.INITIALIZING -> "离线模式初始化中"
+    offlineAutoModeState == OfflineAutoModeState.READY ->
+        "当前已进入离线模式，可由本地大模型提供查询能力"
+    offlineAutoModeState == OfflineAutoModeState.FAILED ->
+        "离线模式初始化失败，本地模型配置不正确"
+    else -> ""
+}
+
+internal fun shouldShowOfflineCapabilityBar(
+    offlineAutoModeState: OfflineAutoModeState,
+): Boolean = offlineAutoModeState == OfflineAutoModeState.INITIALIZING ||
+    offlineAutoModeState == OfflineAutoModeState.READY ||
+    offlineAutoModeState == OfflineAutoModeState.FAILED
+
+internal fun shouldShowOfflineConfigureButton(
+    offlineAutoModeState: OfflineAutoModeState,
+): Boolean = offlineAutoModeState == OfflineAutoModeState.FAILED
 
 @Composable
 private fun EditBottomBar(

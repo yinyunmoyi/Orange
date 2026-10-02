@@ -2,6 +2,7 @@ package com.example.orange.data.standalone
 
 import com.example.orange.BuildConfig
 import com.example.orange.data.logging.AppLog as Log
+import com.example.orange.data.network.NetworkAccessPolicy
 import com.example.orange.data.word.ChineseMeaning
 import com.example.orange.data.word.Definition
 import com.example.orange.data.word.ExplainData
@@ -158,7 +159,7 @@ object StandaloneLlmClient {
             }
             if (!received) throw IOException("llm returned empty translation")
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 
@@ -194,12 +195,12 @@ object StandaloneLlmClient {
             }
             return JSONObject(text)
         } finally {
-            connection.disconnect()
+            NetworkAccessPolicy.release(connection)
         }
     }
 
     private fun openConnection(): HttpURLConnection =
-        (URL(BuildConfig.ANDROID_LLM_API_URL).openConnection() as HttpURLConnection).apply {
+        NetworkAccessPolicy.openConnection(URL(BuildConfig.ANDROID_LLM_API_URL)).apply {
             requestMethod = "POST"
             doOutput = true
             doInput = true
@@ -243,121 +244,16 @@ object StandaloneLlmClient {
         return IOException("llm HTTP $code")
     }
 
-    internal fun parseLookup(content: String, fallback: String): LookupData {
-        val root = JSONObject(extractJson(content))
-        val definitions = mutableListOf<Definition>()
-        root.optJSONArray("definitions")?.let { array ->
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val text = item.optString("definition", "").trim()
-                if (text.isNotEmpty()) {
-                    definitions += Definition(item.optString("partOfSpeech", "").trim(), text)
-                }
-            }
-        }
-        if (definitions.isEmpty()) throw IOException("llm dictionary returned no definitions")
-        return LookupData(
-            word = root.optString("word", fallback).trim().ifEmpty { fallback },
-            phonetic = root.optString("phonetic", "").trim(),
-            pronunciations = emptyList(),
-            definitions = definitions,
-        )
-    }
+    internal fun parseLookup(content: String, fallback: String): LookupData =
+        LlmResponseParser.parseLookup(content, fallback)
 
-    internal fun parseMeaning(content: String, fallback: String): MeaningData {
-        val root = JSONObject(extractJson(content))
-        val meanings = mutableListOf<ChineseMeaning>()
-        root.optJSONArray("meanings")?.let { array ->
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val text = item.optString("meaning", "").trim()
-                if (text.isNotEmpty()) {
-                    meanings += ChineseMeaning(item.optString("partOfSpeech", "").trim(), text)
-                }
-            }
-        }
-        if (meanings.isEmpty()) throw IOException("llm returned no meanings")
-        return MeaningData(root.optString("word", fallback).ifBlank { fallback }, meanings)
-    }
+    internal fun parseMeaning(content: String, fallback: String): MeaningData =
+        LlmResponseParser.parseMeaning(content, fallback)
 
-    internal fun parseSentenceAnalysis(content: String, sentence: String): SentenceAnalysis {
-        val root = JSONObject(extractJson(content))
-        val chunks = mutableListOf<SentenceChunk>()
-        root.optJSONArray("chunks")?.let { array ->
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val text = item.optString("text", "")
-                if (text.isEmpty()) continue
-                val rawType = item.optString("type", "other").trim().lowercase(Locale.ROOT)
-                chunks += SentenceChunk(
-                    text = text,
-                    type = rawType.takeIf(ALLOWED_CHUNK_TYPES::contains) ?: "other",
-                    role = item.optString("role", "").trim(),
-                    translation = item.optString("translation", "").trim(),
-                )
-            }
-        }
-        if (chunks.isEmpty()) {
-            throw IOException("llm sentence chunks do not match source")
-        }
-        val aligned = alignChunksToSentence(sentence, chunks)
-        return SentenceAnalysis(
-            sentence = sentence,
-            structure = root.optString("structure", "").trim(),
-            chunks = aligned ?: chunks,
-        )
-    }
+    internal fun parseSentenceAnalysis(content: String, sentence: String): SentenceAnalysis =
+        LlmResponseParser.parseSentenceAnalysis(content, sentence)
 
-    private fun alignChunksToSentence(
-        sentence: String,
-        chunks: List<SentenceChunk>,
-    ): List<SentenceChunk>? {
-        val aligned = mutableListOf<SentenceChunk>()
-        var cursor = 0
-        for (chunk in chunks) {
-            val end = matchIgnoringWhitespace(sentence, cursor, chunk.text)
-                ?: return null
-            aligned += chunk.copy(text = sentence.substring(cursor, end))
-            cursor = end
-        }
-        if (cursor != sentence.length) {
-            return null
-        }
-        return aligned
-    }
-
-    private fun matchIgnoringWhitespace(source: String, start: Int, candidate: String): Int? {
-        var sourceIndex = start
-        var candidateIndex = 0
-        while (candidateIndex < candidate.length) {
-            if (sourceIndex >= source.length) return null
-            if (candidate[candidateIndex].isWhitespace()) {
-                if (!source[sourceIndex].isWhitespace()) return null
-                while (candidateIndex < candidate.length && candidate[candidateIndex].isWhitespace()) {
-                    candidateIndex++
-                }
-                while (sourceIndex < source.length && source[sourceIndex].isWhitespace()) {
-                    sourceIndex++
-                }
-            } else {
-                if (candidate[candidateIndex] != source[sourceIndex]) return null
-                candidateIndex++
-                sourceIndex++
-            }
-        }
-        return sourceIndex
-    }
-
-    internal fun extractJson(raw: String): String {
-        var value = raw.trim()
-        if (value.startsWith("```")) {
-            value = value.removePrefix("```").removePrefix("json").removePrefix("JSON")
-            value = value.substringBeforeLast("```").trim()
-        }
-        val start = value.indexOf('{')
-        val end = value.lastIndexOf('}')
-        return if (start >= 0 && end > start) value.substring(start, end + 1) else value
-    }
+    internal fun extractJson(raw: String): String = LlmResponseParser.extractJson(raw)
 
     private fun highlight(context: String, word: String, start: Int, end: Int): String {
         if (start >= 0 && end > start && end <= context.length &&
@@ -376,10 +272,6 @@ object StandaloneLlmClient {
     }
 
     private const val TAG = "StandaloneLlm"
-    private val ALLOWED_CHUNK_TYPES = setOf(
-        "main", "modifier", "adverbial", "parenthetical", "participle", "quote", "other",
-    )
-
     private const val WORD_PROMPT =
         """You are a concise English dictionary. Return strict JSON only.
 Output {"word":"...","phonetic":"...","definitions":[{"partOfSpeech":"noun","definition":"..."}]}.
