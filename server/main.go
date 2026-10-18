@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"aaa_word/biz/config"
@@ -36,6 +40,22 @@ func main() {
 		port = *portFlag
 	}
 
+	// #region debug-point A-B-E:process-lifecycle
+	reportDebugEvent("A,B,E", "main.go:startup", "[DEBUG] server process starting", map[string]any{
+		"pid": os.Getpid(), "host": config.ServerHost(), "port": port, "goroutines": runtime.NumGoroutine(),
+	})
+	signal.Ignore(syscall.SIGHUP)
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signalCh)
+	go func() {
+		sig := <-signalCh
+		reportDebugEvent("E", "main.go:signal", "[DEBUG] server received exit signal", map[string]any{
+			"pid": os.Getpid(), "signal": sig.String(), "goroutines": runtime.NumGoroutine(),
+		})
+	}()
+	// #endregion
+
 	closeServerLog := enableServerLog()
 	defer closeServerLog()
 
@@ -48,23 +68,21 @@ func main() {
 
 	if serverID, err := syncidentity.Current(); err != nil {
 		log.Printf("[context-video-sync] load server identity failed: %v", err)
-	} else if discoveryServer, discoveryErr := discovery.StartContextSyncService(
+	} else if discoveryManager, discoveryErr := discovery.StartContextSyncServiceManager(
 		serverID,
 		port,
 	); discoveryErr != nil {
-		log.Printf("[context-video-sync] mDNS registration failed: %v", discoveryErr)
+		log.Printf("[context-video-sync] mDNS manager start failed: %v", discoveryErr)
 	} else {
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			if err := discovery.ShutdownContextSyncService(ctx, discoveryServer); err != nil {
+			if err := discoveryManager.Shutdown(ctx); err != nil {
 				log.Printf("[context-video-sync] mDNS shutdown timed out: %v", err)
 			} else {
 				log.Printf("[context-video-sync] mDNS shutdown finished")
 			}
 		}()
-		log.Printf("[context-video-sync] mDNS registered service=%s port=%d",
-			discovery.ContextSyncServiceType, port)
 	}
 
 	h := server.Default(
@@ -77,9 +95,77 @@ func main() {
 	h.Use(cors())
 
 	router.Register(h)
+	h.SetCustomSignalWaiter(waitForServerShutdown)
 
+	// #region debug-point D-E:http-engine-lifecycle
+	reportDebugEvent("D,E", "main.go:before-spin", "[DEBUG] HTTP engine entering Spin", map[string]any{
+		"pid": os.Getpid(), "host": config.ServerHost(), "port": port, "goroutines": runtime.NumGoroutine(),
+	})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			reportDebugEvent("D,E", "main.go:heartbeat", "[DEBUG] server process heartbeat", map[string]any{
+				"pid": os.Getpid(), "goroutines": runtime.NumGoroutine(),
+			})
+		}
+	}()
 	h.Spin()
+	reportDebugEvent("D,E", "main.go:after-spin", "[DEBUG] HTTP engine Spin returned", map[string]any{
+		"pid": os.Getpid(), "goroutines": runtime.NumGoroutine(),
+	})
+	// #endregion
 }
+
+func waitForServerShutdown(errCh chan error) error {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, serverShutdownSignals()...)
+	defer signal.Stop(signals)
+	select {
+	case <-signals:
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+func serverShutdownSignals() []os.Signal {
+	return []os.Signal{syscall.SIGINT, syscall.SIGTERM}
+}
+
+// #region debug-point A-B-D-E:reporter
+var debugLogMu sync.Mutex
+
+func reportDebugEvent(hypothesisID, location, message string, data map[string]any) {
+	payload, err := json.Marshal(map[string]any{
+		"sessionId": "zeronews-loopback-refused", "runId": "post-fix", "hypothesisId": hypothesisID,
+		"location": location, "msg": message, "data": data, "ts": time.Now().UnixMilli(),
+	})
+	if err != nil {
+		return
+	}
+	workspace, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	if filepath.Base(workspace) == "server" {
+		workspace = filepath.Dir(workspace)
+	}
+	path := filepath.Join(workspace, ".dbg", "trae-debug-log-zeronews-loopback-refused.ndjson")
+	debugLogMu.Lock()
+	defer debugLogMu.Unlock()
+	if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o755); mkdirErr != nil {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.Write(append(payload, '\n'))
+}
+
+// #endregion
 
 type rotatingLogWriter struct {
 	mu        sync.Mutex

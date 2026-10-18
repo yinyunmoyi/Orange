@@ -35,7 +35,7 @@ func SliceUTF16(text string, start, end int) (string, error) {
 }
 
 // ValidateSelection 校验段落选区与收藏项文本是否一致。
-// 比较时忽略大小写，并把连续空白折叠为单个空格。
+// 比较时忽略大小写，并归一化常见 EPUB 标点和连续空白。
 func ValidateSelection(paragraph string, start, end int, itemText string) (string, error) {
 	selected, err := SliceUTF16(paragraph, start, end)
 	if err != nil {
@@ -48,5 +48,15 @@ func ValidateSelection(paragraph string, start, end int, itemText string) (strin
 }
 
 func normalizeSelectionText(text string) string {
-	return strings.Join(strings.Fields(text), " ")
+	normalized := strings.Map(func(char rune) rune {
+		switch char {
+		case '\u2018', '\u2019', '\u02BC', '\uFF07':
+			return '\''
+		case '\u2010', '\u2011':
+			return '-'
+		default:
+			return char
+		}
+	}, text)
+	return strings.Join(strings.Fields(normalized), " ")
 }

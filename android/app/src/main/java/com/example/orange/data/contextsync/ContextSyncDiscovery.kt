@@ -5,15 +5,19 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.SystemClock
+import com.example.orange.data.logging.AppLog as Log
 import com.example.orange.data.word.WordServiceConfig
 import com.example.orange.data.network.NetworkAccessPolicy
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 
 data class ContextSyncEndpoint(
@@ -25,22 +29,73 @@ class ContextSyncDiscovery(private val context: Context) {
     private val preferences = ContextSyncPreferences(context)
 
     suspend fun discover(): ContextSyncEndpoint? {
+        val endpoint = discoverCandidate() ?: return null
+        preferences.saveEndpoint(endpoint.origin, endpoint.serverId)
+        return endpoint
+    }
+
+    internal suspend fun discoverCandidate(): ContextSyncEndpoint? {
         NetworkAccessPolicy.requireAllowed()
-        val trustedServerId = trustedServerId() ?: return null
+        val started = SystemClock.elapsedRealtime()
+        if (shouldLogDiscoveryStarted(started)) {
+            Log.event(
+                TAG,
+                "discovery_started",
+                JSONObject().put("cached", preferences.localOrigin != null),
+            )
+        }
+        val trustedServerId = trustedServerId()
+        if (trustedServerId == null) {
+            logRejected("trusted_id_unavailable", null, started)
+            return null
+        }
         val cachedOrigin = preferences.localOrigin
         if (cachedOrigin != null) {
             val pingId = ContextVideoSyncApi.ping(cachedOrigin).getOrNull()
             if (serverIdsMatch(trustedServerId, pingId)) {
                 return ContextSyncEndpoint(cachedOrigin, trustedServerId)
             }
-            preferences.clearEndpoint()
+            logRejected("cached_ping_failed", cachedOrigin, started)
         }
 
-        val candidate = discoverWithNsd(trustedServerId) ?: return null
+        val candidate = discoverWithNsd(trustedServerId)
+        if (candidate == null) {
+            val now = SystemClock.elapsedRealtime()
+            if (shouldLogTimeout(now)) {
+                Log.event(
+                    TAG,
+                    "discovery_timeout",
+                    JSONObject().put("durationMs", now - started),
+                )
+            }
+            return null
+        }
         val pingId = ContextVideoSyncApi.ping(candidate.origin).getOrNull()
-        if (!serverIdsMatch(trustedServerId, pingId)) return null
-        preferences.saveEndpoint(candidate.origin, trustedServerId)
+        if (!serverIdsMatch(trustedServerId, pingId)) {
+            logRejected("candidate_ping_failed", candidate.origin, started)
+            return null
+        }
+        Log.event(
+            TAG,
+            "candidate_verified",
+            JSONObject()
+                .put("origin", candidate.origin)
+                .put("serverIdPrefix", trustedServerId.take(8))
+                .put("durationMs", SystemClock.elapsedRealtime() - started),
+        )
         return candidate
+    }
+
+    private fun logRejected(reason: String, origin: String?, started: Long) {
+        if (!shouldLogRejected(SystemClock.elapsedRealtime())) return
+        Log.event(
+            TAG,
+            "candidate_rejected",
+            JSONObject()
+                .put("reason", reason)
+                .put("origin", origin ?: "")
+                .put("durationMs", SystemClock.elapsedRealtime() - started),
+        )
     }
 
     private suspend fun trustedServerId(): String? {
@@ -136,6 +191,13 @@ class ContextSyncDiscovery(private val context: Context) {
 
                 override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                     if (serviceInfo.serviceType != SERVICE_TYPE || completed.get()) return
+                    if (shouldLogServiceFound(SystemClock.elapsedRealtime())) {
+                        Log.event(
+                            TAG,
+                            "service_found",
+                            JSONObject().put("serviceName", serviceInfo.serviceName.take(100)),
+                        )
+                    }
                     synchronized(resolutionLock) { pending.addLast(serviceInfo) }
                     resolveNext()
                 }
@@ -174,6 +236,38 @@ class ContextSyncDiscovery(private val context: Context) {
 
     companion object {
         const val SERVICE_TYPE = "_orange-context._tcp."
+        private const val TAG = "LanDiscovery"
+        private const val TIMEOUT_LOG_INTERVAL_MS = 60_000L
+        private val lastTimeoutLogAt = AtomicLong(Long.MIN_VALUE)
+        private val lastServiceFoundLogAt = AtomicLong(Long.MIN_VALUE)
+        private val lastDiscoveryStartedLogAt = AtomicLong(Long.MIN_VALUE)
+        private val lastRejectedLogAt = AtomicLong(Long.MIN_VALUE)
+
+        private fun shouldLogTimeout(now: Long): Boolean {
+            return shouldLog(now, lastTimeoutLogAt)
+        }
+
+        private fun shouldLogDiscoveryStarted(now: Long): Boolean {
+            return shouldLog(now, lastDiscoveryStartedLogAt)
+        }
+
+        private fun shouldLogServiceFound(now: Long): Boolean {
+            return shouldLog(now, lastServiceFoundLogAt)
+        }
+
+        private fun shouldLogRejected(now: Long): Boolean {
+            return shouldLog(now, lastRejectedLogAt)
+        }
+
+        private fun shouldLog(now: Long, lastLogAt: AtomicLong): Boolean {
+            while (true) {
+                val previous = lastLogAt.get()
+                if (previous != Long.MIN_VALUE && now - previous < TIMEOUT_LOG_INTERVAL_MS) {
+                    return false
+                }
+                if (lastLogAt.compareAndSet(previous, now)) return true
+            }
+        }
 
         internal fun isValidServerId(serverId: String): Boolean =
             SERVER_ID_PATTERN.matches(serverId)

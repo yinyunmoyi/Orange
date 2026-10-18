@@ -20,15 +20,22 @@ class ContextSyncPreferences(context: Context) {
             preferences.edit().putBoolean(KEY_PERMISSION_ASKED, value).apply()
         }
 
-    fun saveEndpoint(origin: String, serverId: String) {
+    @Synchronized
+    fun saveEndpoint(origin: String, serverId: String): Boolean {
         check(serverId == this.serverId) { "cannot cache an untrusted context sync server" }
+        if (localOrigin == origin) return false
         preferences.edit()
             .putString(KEY_ORIGIN, origin)
-            .apply()
+            .commit()
+        return true
     }
 
-    fun clearEndpoint() {
-        preferences.edit().remove(KEY_ORIGIN).apply()
+    @Synchronized
+    fun clearEndpoint(expectedOrigin: String? = null): Boolean {
+        val current = localOrigin ?: return false
+        if (expectedOrigin != null && current != expectedOrigin) return false
+        preferences.edit().remove(KEY_ORIGIN).commit()
+        return true
     }
 
     @Synchronized

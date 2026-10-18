@@ -1,7 +1,7 @@
 package com.example.orange.data.standalone
 
 import android.content.Context
-import com.example.orange.data.contextsync.ContextSyncDiscovery
+import com.example.orange.data.contextsync.ContextSyncConnectionManager
 import com.example.orange.data.logging.AppLog as Log
 import com.example.orange.data.network.NetworkAccessPolicy
 import kotlinx.coroutines.CancellationException
@@ -21,7 +21,7 @@ class StandaloneSyncWorker(
         try {
             val store = StandaloneRepository.store()
             val localOrigin = runCatching {
-                ContextSyncDiscovery(applicationContext).discover()?.origin
+                ContextSyncConnectionManager.resolveNow(applicationContext)?.origin
             }.getOrNull()
             val origins = StandaloneSyncApi.candidateOrigins(localOrigin)
             var hadFailure = false

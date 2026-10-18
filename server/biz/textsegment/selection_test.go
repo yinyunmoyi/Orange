@@ -64,16 +64,51 @@ func TestSliceUTF16(t *testing.T) {
 }
 
 func TestValidateSelection(t *testing.T) {
-	paragraph := "“What are you talking about?” Harry asked, looking   around at them all."
-	start := utf16Index(paragraph, "looking   around")
-	end := start + utf16Len("looking   around")
-
-	selected, err := ValidateSelection(paragraph, start, end, "LOOKING AROUND")
-	if err != nil {
-		t.Fatalf("ValidateSelection() error = %v", err)
+	tests := []struct {
+		name      string
+		paragraph string
+		selected  string
+		itemText  string
+	}{
+		{
+			name:      "case and whitespace",
+			paragraph: "“What are you talking about?” Harry asked, looking   around at them all.",
+			selected:  "looking   around",
+			itemText:  "LOOKING AROUND",
+		},
+		{
+			name:      "smart apostrophe",
+			paragraph: "Ryo leaned forward. “Mum’s the word.”",
+			selected:  "Mum’s the word",
+			itemText:  "mum's the word",
+		},
+		{
+			name:      "modifier and fullwidth apostrophes",
+			paragraph: "rockʼn＇roll",
+			selected:  "rockʼn＇roll",
+			itemText:  "rock'n'roll",
+		},
+		{
+			name:      "unicode hyphens",
+			paragraph: "a well‐known non‑starter",
+			selected:  "well‐known non‑starter",
+			itemText:  "well-known non-starter",
+		},
 	}
-	if selected != "looking   around" {
-		t.Fatalf("selected = %q", selected)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start := utf16Index(tt.paragraph, tt.selected)
+			end := start + utf16Len(tt.selected)
+
+			selected, err := ValidateSelection(tt.paragraph, start, end, tt.itemText)
+			if err != nil {
+				t.Fatalf("ValidateSelection() error = %v", err)
+			}
+			if selected != tt.selected {
+				t.Fatalf("selected = %q, want original %q", selected, tt.selected)
+			}
+		})
 	}
 }
 

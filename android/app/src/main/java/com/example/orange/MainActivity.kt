@@ -29,6 +29,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
 import com.example.orange.data.BookRepository
 import com.example.orange.data.audiosync.AudioSyncScheduler
+import com.example.orange.data.contextsync.ContextSyncConnectionManager
 import com.example.orange.data.contextsync.ContextSyncPreferences
 import com.example.orange.data.contextsync.ContextVideoSyncScheduler
 import com.example.orange.data.learning.LearningApi
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
+            ContextSyncConnectionManager.start(applicationContext)
             ContextVideoSyncScheduler.start(applicationContext)
             AudioSyncScheduler.start(applicationContext)
         }
@@ -77,6 +79,7 @@ class MainActivity : ComponentActivity() {
     private fun requestLocalNetworkPermissionOnce() {
         if (!NetworkAccessPolicy.isAllowed()) return
         if (Build.VERSION.SDK_INT < 37) {
+            ContextSyncConnectionManager.start(applicationContext)
             ContextVideoSyncScheduler.start(applicationContext)
             AudioSyncScheduler.start(applicationContext)
             return
@@ -87,6 +90,7 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.ACCESS_LOCAL_NETWORK,
             ) == PackageManager.PERMISSION_GRANTED
         ) {
+            ContextSyncConnectionManager.start(applicationContext)
             ContextVideoSyncScheduler.start(applicationContext)
             AudioSyncScheduler.start(applicationContext)
             return

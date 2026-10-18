@@ -8,10 +8,12 @@ import (
 
 const (
 	// Version 标识当前确定性切句规则版本。
-	Version = "rule_en_v3"
+	Version = "rule_en_v4"
 
-	maxSentenceRunes = 500
-	maxSpeakerWords  = 3
+	maxSentenceRunes           = 500
+	maxSpeakerWords            = 3
+	shortSentenceRunes         = 24
+	shortContextExpansionRunes = 40
 )
 
 var abbreviations = map[string]struct{}{
@@ -107,6 +109,10 @@ func ExtractSentence(paragraph string, selectionStart, selectionEnd int) (Result
 	if sentenceStart >= sentenceEnd || selectionStart < sentenceStart || selectionEnd > sentenceEnd {
 		return Result{}, errors.New("no sentence contains the selection")
 	}
+	baseSentence := string(utf16.Decode(units[sentenceStart:sentenceEnd]))
+	if len([]rune(baseSentence)) < shortSentenceRunes {
+		sentenceStart, sentenceEnd = expandContextWindow(units, sentenceStart, sentenceEnd)
+	}
 	sentence := string(utf16.Decode(units[sentenceStart:sentenceEnd]))
 	if len([]rune(sentence)) > maxSentenceRunes {
 		return Result{}, errors.New("extracted sentence is too long")
@@ -120,6 +126,39 @@ func ExtractSentence(paragraph string, selectionStart, selectionEnd int) (Result
 		HighlightEnd:   selectionEnd - sentenceStart,
 		Version:        Version,
 	}, nil
+}
+
+func expandContextWindow(units []uint16, start, end int) (int, int) {
+	start = moveRuneStartBackward(units, start, shortContextExpansionRunes)
+	end = moveRuneEndForward(units, end, shortContextExpansionRunes)
+	for start < end && isWhitespace(units[start]) {
+		start++
+	}
+	for end > start && isWhitespace(units[end-1]) {
+		end--
+	}
+	return start, end
+}
+
+func moveRuneStartBackward(units []uint16, index, count int) int {
+	for moved := 0; moved < count && index > 0; moved++ {
+		index--
+		if index > 0 && isLowSurrogate(units[index]) && isHighSurrogate(units[index-1]) {
+			index--
+		}
+	}
+	return index
+}
+
+func moveRuneEndForward(units []uint16, index, count int) int {
+	for moved := 0; moved < count && index < len(units); moved++ {
+		if isHighSurrogate(units[index]) && index+1 < len(units) && isLowSurrogate(units[index+1]) {
+			index += 2
+		} else {
+			index++
+		}
+	}
+	return index
 }
 
 func sentenceBoundaries(units []uint16) []int {

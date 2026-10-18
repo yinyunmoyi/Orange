@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import android.os.Bundle
 import com.example.orange.data.audiosync.AudioSyncScheduler
+import com.example.orange.data.contextsync.ContextSyncConnectionManager
 import com.example.orange.data.contextsync.ContextVideoSyncScheduler
 import com.example.orange.data.logging.AppLog
 import com.example.orange.data.mode.AppMode
@@ -57,6 +58,7 @@ class OrangeApplication : Application() {
             },
         )
         if (AppModeRepository.current() != AppMode.OFFLINE) {
+            ContextSyncConnectionManager.start(this)
             ContextVideoSyncScheduler.start(this)
             AudioSyncScheduler.start(this)
             StandaloneSyncScheduler.start(this)

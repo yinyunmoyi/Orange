@@ -40,6 +40,7 @@ object OfflineAutoModeController {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(OfflineAutoModeState.IDLE)
     private var started = false
+    private var initialNetworkCheckCompleted = false
     private var scheduledCheck: Job? = null
 
     val state: StateFlow<OfflineAutoModeState> = mutableState.asStateFlow()
@@ -53,14 +54,14 @@ object OfflineAutoModeController {
             if (manager != null) {
                 manager.registerDefaultNetworkCallback(
                     object : ConnectivityManager.NetworkCallback() {
-                        override fun onAvailable(network: Network) = scheduleCheck(appContext)
+                        override fun onAvailable(network: Network) = check(appContext)
 
                         override fun onLost(network: Network) = scheduleCheck(appContext)
 
                         override fun onCapabilitiesChanged(
                             network: Network,
                             capabilities: NetworkCapabilities,
-                        ) = scheduleCheck(appContext)
+                        ) = check(appContext)
                     },
                 )
             }
@@ -70,6 +71,14 @@ object OfflineAutoModeController {
 
     fun check(context: Context) {
         val appContext = context.applicationContext
+        if (!InternetAvailability.isAvailable(appContext)) {
+            scheduleCheck(appContext)
+            return
+        }
+        synchronized(this) {
+            scheduledCheck?.cancel()
+            scheduledCheck = null
+        }
         scope.launch {
             reconcile(appContext)
         }
@@ -77,15 +86,21 @@ object OfflineAutoModeController {
 
     private fun scheduleCheck(context: Context) {
         synchronized(this) {
+            if (!initialNetworkCheckCompleted && scheduledCheck?.isActive == true) return
             scheduledCheck?.cancel()
             scheduledCheck = scope.launch {
-                delay(NETWORK_SETTLE_MILLIS)
+                val delayMillis = offlineNetworkCheckDelayMillis(initialNetworkCheckCompleted)
+                delay(delayMillis)
                 reconcile(context)
             }
         }
     }
 
     private suspend fun reconcile(context: Context) = mutex.withLock {
+        synchronized(this) {
+            initialNetworkCheckCompleted = true
+            scheduledCheck = null
+        }
         val mode = AppModeRepository.current()
         when (offlineNetworkAction(mode, InternetAvailability.isAvailable(context))) {
             OfflineNetworkAction.STAY_ONLINE -> {
@@ -161,10 +176,15 @@ object OfflineAutoModeController {
     private fun preferences(context: Context) =
         context.getSharedPreferences(PREFERENCES_FILE, Context.MODE_PRIVATE)
 
-    private const val NETWORK_SETTLE_MILLIS = 1_000L
     private const val PREFERENCES_FILE = "offline_auto_mode"
     private const val KEY_PREVIOUS_MODE = "previous_online_mode"
 }
+
+private const val INITIAL_NETWORK_CHECK_MILLIS = 3_000L
+private const val NETWORK_SETTLE_MILLIS = 1_000L
+
+internal fun offlineNetworkCheckDelayMillis(initialCheckCompleted: Boolean): Long =
+    if (initialCheckCompleted) NETWORK_SETTLE_MILLIS else INITIAL_NETWORK_CHECK_MILLIS
 
 internal fun offlineNetworkAction(
     mode: AppMode,

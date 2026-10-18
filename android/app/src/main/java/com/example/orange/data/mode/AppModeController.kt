@@ -2,7 +2,9 @@ package com.example.orange.data.mode
 
 import android.content.Context
 import androidx.work.WorkManager
+import androidx.work.await
 import com.example.orange.data.audiosync.AudioSyncScheduler
+import com.example.orange.data.contextsync.ContextSyncConnectionManager
 import com.example.orange.data.contextsync.ContextVideoSyncScheduler
 import com.example.orange.data.logging.AppLog
 import com.example.orange.data.network.NetworkAccessPolicy
@@ -24,6 +26,7 @@ object AppModeController {
             }
             val previousMode = AppModeRepository.current()
             NetworkAccessPolicy.setOffline(true)
+            ContextSyncConnectionManager.pause()
             cancelNetworkWork(appContext)
             OfflineEngineSession.warmUp().getOrElse { error ->
                 OfflineEngineSession.close()
@@ -46,6 +49,7 @@ object AppModeController {
     }
 
     private fun resumeNetworkWork(context: Context, mode: AppMode) {
+        ContextSyncConnectionManager.start(context)
         ContextVideoSyncScheduler.start(context)
         AudioSyncScheduler.start(context)
         if (mode == AppMode.NORMAL) StandaloneSyncScheduler.enqueue(context)
@@ -57,11 +61,11 @@ object AppModeController {
         NetworkAccessPolicy.initialize(AppModeRepository.current())
     }
 
-    private fun cancelNetworkWork(context: Context) {
+    private suspend fun cancelNetworkWork(context: Context) {
         WorkManager.getInstance(context).apply {
-            cancelUniqueWork(StandaloneSyncScheduler.UNIQUE_WORK)
-            cancelUniqueWork(AudioSyncScheduler.UNIQUE_WORK)
-            cancelUniqueWork(ContextVideoSyncScheduler.UNIQUE_WORK)
+            cancelUniqueWork(StandaloneSyncScheduler.UNIQUE_WORK).await()
+            cancelUniqueWork(AudioSyncScheduler.UNIQUE_WORK).await()
+            cancelUniqueWork(ContextVideoSyncScheduler.UNIQUE_WORK).await()
         }
     }
 }

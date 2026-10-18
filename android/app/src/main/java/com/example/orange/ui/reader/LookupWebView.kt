@@ -148,20 +148,7 @@ class LookupWebView @JvmOverloads constructor(
             afterDispatch()
             if (cb == null) return@evaluateJavascript
             val payload = parseSelectionPayload(raw) ?: return@evaluateJavascript
-            val trimmed = payload.text.trim()
-            if (trimmed.isEmpty()) return@evaluateJavascript
-            val hasInnerWhitespace = trimmed.any { it.isWhitespace() }
-            val normalized = if (hasInnerWhitespace) {
-                trimmed.split(WHITESPACE_REGEX).joinToString(" ")
-            } else {
-                trimmed
-            }
-            if (normalized.length > MAX_PHRASE_LEN) return@evaluateJavascript
-            if (!hasInnerWhitespace) {
-                if (!WORD_REGEX.matches(normalized)) return@evaluateJavascript
-            } else {
-                if (!PHRASE_REGEX.matches(normalized)) return@evaluateJavascript
-            }
+            val normalized = normalizeLookupSelection(payload.text) ?: return@evaluateJavascript
 
             val density = resources.displayMetrics.density
             val loc = IntArray(2)
@@ -283,10 +270,7 @@ class LookupWebView @JvmOverloads constructor(
         const val MENU_ID_ANALYZE = 0x0100_0101
         const val MENU_ID_COPY = 0x0100_0102
 
-        private val WORD_REGEX = Regex("^[A-Za-z][A-Za-z'-]*$")
-        private val PHRASE_REGEX = Regex("^[A-Za-z][A-Za-z'-]*(?: [A-Za-z][A-Za-z'-]*){1,7}$")
         private val WHITESPACE_REGEX = Regex("\\s+")
-        private const val MAX_PHRASE_LEN = 80
         private const val MAX_SENTENCE_LEN = 500
         private const val SELECTION_JS = """
             (function(){
@@ -336,6 +320,34 @@ class LookupWebView @JvmOverloads constructor(
             })();
         """
     }
+}
+
+private val LOOKUP_WORD_REGEX = Regex("^[A-Za-z][A-Za-z'-]*$")
+private val LOOKUP_PHRASE_REGEX = Regex("^[A-Za-z][A-Za-z'-]*(?: [A-Za-z][A-Za-z'-]*){1,7}$")
+private val LOOKUP_SPACES_REGEX = Regex(" +")
+private const val MAX_LOOKUP_PHRASE_LEN = 80
+
+internal fun normalizeLookupSelection(raw: String): String? {
+    val normalized = buildString(raw.length) {
+        raw.forEach { char ->
+            append(
+                when {
+                    char.isWhitespace() || Character.isSpaceChar(char) -> ' '
+                    char == '\u2018' || char == '\u2019' || char == '\u02BC' || char == '\uFF07' -> '\''
+                    char == '\u2010' || char == '\u2011' -> '-'
+                    else -> char
+                },
+            )
+        }
+    }.trim().split(LOOKUP_SPACES_REGEX).joinToString(" ")
+
+    if (normalized.isEmpty() || normalized.length > MAX_LOOKUP_PHRASE_LEN) return null
+    val valid = if (' ' in normalized) {
+        LOOKUP_PHRASE_REGEX.matches(normalized)
+    } else {
+        LOOKUP_WORD_REGEX.matches(normalized)
+    }
+    return normalized.takeIf { valid }
 }
 
 private fun String.normalizeSentence(): String {

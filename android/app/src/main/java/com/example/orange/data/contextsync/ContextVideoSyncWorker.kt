@@ -1,14 +1,10 @@
 package com.example.orange.data.contextsync
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.os.Build
 import com.example.orange.data.logging.AppLog as Log
 import com.example.orange.data.network.NetworkAccessPolicy
-import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 
@@ -18,7 +14,9 @@ class ContextVideoSyncWorker(
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
         if (!NetworkAccessPolicy.isAllowed()) return Result.success()
-        if (!hasLocalNetworkPermission(applicationContext)) return Result.success()
+        if (!ContextSyncConnectionManager.hasLocalNetworkPermission(applicationContext)) {
+            return Result.success()
+        }
         val connectivity = applicationContext.getSystemService(ConnectivityManager::class.java)
         val network = connectivity.activeNetwork ?: return Result.success()
         val capabilities = connectivity.getNetworkCapabilities(network) ?: return Result.success()
@@ -29,7 +27,7 @@ class ContextVideoSyncWorker(
             return Result.success()
         }
 
-        val endpoint = ContextSyncDiscovery(applicationContext).discover()
+        val endpoint = ContextSyncConnectionManager.resolveNow(applicationContext)
             ?: return Result.success()
         val manifest = ContextVideoSyncApi.manifest(endpoint.origin, endpoint.serverId)
             .getOrElse {
@@ -49,15 +47,7 @@ class ContextVideoSyncWorker(
         )
         return Result.success()
     }
-
     companion object {
         private const val TAG = "ContextVideoSync"
-
-        fun hasLocalNetworkPermission(context: Context): Boolean =
-            Build.VERSION.SDK_INT < 37 ||
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.ACCESS_LOCAL_NETWORK,
-                ) == PackageManager.PERMISSION_GRANTED
     }
 }

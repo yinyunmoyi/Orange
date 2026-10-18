@@ -65,13 +65,19 @@ object AppLog {
         return result
     }
 
-    fun w(tag: String, message: String, error: Throwable? = null): Int {
+    fun w(
+        tag: String,
+        message: String,
+        error: Throwable? = null,
+        data: JSONObject? = null,
+        immediateUpload: Boolean = false,
+    ): Int {
         val result = if (error == null) {
             android.util.Log.w(tag, message)
         } else {
             android.util.Log.w(tag, message, error)
         }
-        enqueue("WARN", tag, message, null, null, error)
+        enqueue("WARN", tag, message, data, null, error, immediateUpload)
         return result
     }
 
@@ -115,13 +121,14 @@ object AppLog {
         data: JSONObject?,
         traceId: String?,
         error: Throwable?,
+        immediateUpload: Boolean = false,
     ) {
         val context = applicationContext ?: return
         val event = buildEvent(level, tag, message, data, traceId, error)
         executor.execute {
             runCatching {
                 appendEvent(context, event)
-                flushPending(force = false)
+                flushPending(force = immediateUpload)
             }.onFailure {
                 android.util.Log.w("AppLog", "persist or upload failed", it)
             }

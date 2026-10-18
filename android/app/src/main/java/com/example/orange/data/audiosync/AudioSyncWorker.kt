@@ -6,8 +6,7 @@ import android.net.NetworkCapabilities
 import com.example.orange.data.logging.AppLog as Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.orange.data.contextsync.ContextSyncDiscovery
-import com.example.orange.data.contextsync.ContextVideoSyncWorker
+import com.example.orange.data.contextsync.ContextSyncConnectionManager
 import com.example.orange.data.network.NetworkAccessPolicy
 
 class AudioSyncWorker(
@@ -16,7 +15,7 @@ class AudioSyncWorker(
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
         if (!NetworkAccessPolicy.isAllowed()) return Result.success()
-        if (!ContextVideoSyncWorker.hasLocalNetworkPermission(applicationContext)) {
+        if (!ContextSyncConnectionManager.hasLocalNetworkPermission(applicationContext)) {
             return Result.success()
         }
         val connectivity = applicationContext.getSystemService(ConnectivityManager::class.java)
@@ -29,7 +28,7 @@ class AudioSyncWorker(
             return Result.success()
         }
 
-        val endpoint = ContextSyncDiscovery(applicationContext).discover()
+        val endpoint = ContextSyncConnectionManager.resolveNow(applicationContext)
             ?: return Result.success()
         val manifest = AudioSyncApi.manifest(endpoint.origin, endpoint.serverId)
             .getOrElse {

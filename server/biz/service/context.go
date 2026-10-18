@@ -30,6 +30,7 @@ const (
 	ContextTaskFailed     = "failed"
 
 	maxContextParagraphUTF16 = 20_000
+	maxContextTaskAttempts   = 3
 )
 
 var (
@@ -73,10 +74,14 @@ func NormalizeContextTaskRequest(req *model.ContextTaskRequest) (*model.ContextT
 	}, nil
 }
 
-// ContextDedupeKey 返回同一目标、句子和高亮位置的稳定幂等键。
+// ContextTaskDedupeKey 返回同一切句版本、目标、原始段落和选区的稳定幂等键。
 func ContextTaskDedupeKey(req *model.ContextTaskRequest) string {
-	raw := fmt.Sprintf("%s\x00%d\x00%s\x00%d\x00%d",
-		req.ItemType, req.ItemID, req.Paragraph, req.SelectionStart, req.SelectionEnd)
+	return contextTaskDedupeKey(req, textsegment.Version)
+}
+
+func contextTaskDedupeKey(req *model.ContextTaskRequest, splitterVersion string) string {
+	raw := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%d\x00%d",
+		splitterVersion, req.ItemType, req.ItemID, req.Paragraph, req.SelectionStart, req.SelectionEnd)
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
@@ -167,9 +172,33 @@ func ProcessContextTask(ctx context.Context, rawReq *model.ContextTaskRequest) (
 			log.Printf("[context-task] duplicate processing task_id=%d key=%s", task.ID, taskDedupeKey)
 			return contextTaskData(&task), ErrContextTaskConflict
 		case ContextTaskFailed:
-			log.Printf("[context-task] duplicate failed task_id=%d key=%s last_error=%q",
-				task.ID, taskDedupeKey, truncate(task.LastError, 300))
-			return contextTaskData(&task), ErrContextTaskFailed
+			if !canRetryContextTask(&task) {
+				log.Printf("[context-task] duplicate failed exhausted task_id=%d attempts=%d key=%s last_error=%q",
+					task.ID, task.Attempts, taskDedupeKey, truncate(task.LastError, 300))
+				return contextTaskData(&task), ErrContextTaskFailed
+			}
+			requeue := db.DB.WithContext(ctx).Model(&db.ContextTask{}).
+				Where("id = ? AND status = ? AND attempts < ?", task.ID, ContextTaskFailed, maxContextTaskAttempts).
+				Updates(map[string]any{
+					"status":      ContextTaskPending,
+					"last_error":  "",
+					"finished_at": nil,
+				})
+			if requeue.Error != nil {
+				log.Printf("[context-task] retry requeue failed task_id=%d attempts=%d key=%s err=%v",
+					task.ID, task.Attempts, taskDedupeKey, requeue.Error)
+				return contextTaskData(&task), fmt.Errorf("requeue context task: %w", requeue.Error)
+			}
+			if requeue.RowsAffected != 1 {
+				log.Printf("[context-task] retry requeue conflict task_id=%d attempts=%d key=%s",
+					task.ID, task.Attempts, taskDedupeKey)
+				return contextTaskData(&task), ErrContextTaskConflict
+			}
+			log.Printf("[context-task] retry requeued task_id=%d next_attempt=%d/%d key=%s previous_error=%q",
+				task.ID, task.Attempts+1, maxContextTaskAttempts, taskDedupeKey, truncate(task.LastError, 300))
+			task.Status = ContextTaskPending
+			task.LastError = ""
+			task.FinishedAt = nil
 		default:
 			log.Printf("[context-task] invalid existing status task_id=%d status=%q key=%s",
 				task.ID, task.Status, taskDedupeKey)
@@ -181,10 +210,11 @@ func ProcessContextTask(ctx context.Context, rawReq *model.ContextTaskRequest) (
 	claim := db.DB.WithContext(ctx).Model(&db.ContextTask{}).
 		Where("id = ? AND status = ?", task.ID, ContextTaskPending).
 		Updates(map[string]any{
-			"status":     ContextTaskProcessing,
-			"attempts":   gorm.Expr("attempts + 1"),
-			"started_at": now,
-			"last_error": "",
+			"status":      ContextTaskProcessing,
+			"attempts":    gorm.Expr("attempts + 1"),
+			"started_at":  now,
+			"finished_at": nil,
+			"last_error":  "",
 		})
 	if claim.Error != nil {
 		log.Printf("[context-task] claim failed task_id=%d key=%s err=%v", task.ID, taskDedupeKey, claim.Error)
@@ -344,6 +374,12 @@ func rawReqInt(req *model.ContextTaskRequest, get func(*model.ContextTaskRequest
 		return 0
 	}
 	return get(req)
+}
+
+func canRetryContextTask(task *db.ContextTask) bool {
+	return task != nil &&
+		task.Status == ContextTaskFailed &&
+		task.Attempts < maxContextTaskAttempts
 }
 
 func rawReqInt64(req *model.ContextTaskRequest, get func(*model.ContextTaskRequest) int64) int64 {

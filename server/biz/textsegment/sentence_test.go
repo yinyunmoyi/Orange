@@ -17,7 +17,7 @@ func TestExtractSentence(t *testing.T) {
 			name:      "basic sentence",
 			paragraph: "First sentence. The storm arrived. Last sentence.",
 			selected:  "storm",
-			want:      "The storm arrived.",
+			want:      "First sentence. The storm arrived. Last sentence.",
 		},
 		{
 			name:      "title abbreviation with space",
@@ -47,7 +47,7 @@ func TestExtractSentence(t *testing.T) {
 			name:      "dotted acronym",
 			paragraph: "The U.S. team won. Fans cheered.",
 			selected:  "team",
-			want:      "The U.S. team won.",
+			want:      "The U.S. team won. Fans cheered.",
 		},
 		{
 			name:      "initials",
@@ -71,7 +71,7 @@ func TestExtractSentence(t *testing.T) {
 			name:      "quoted sentence",
 			paragraph: "He shouted, \"Run now!\" Then he stopped.",
 			selected:  "Run",
-			want:      "He shouted, \"Run now!\"",
+			want:      "He shouted, \"Run now!\" Then he stopped.",
 		},
 		{
 			name:      "quoted question followed by speech tag",
@@ -89,13 +89,13 @@ func TestExtractSentence(t *testing.T) {
 			name:      "parenthesized sentence",
 			paragraph: "(Really?) She looked surprised.",
 			selected:  "Really",
-			want:      "(Really?)",
+			want:      "(Really?) She looked surprised.",
 		},
 		{
 			name:      "ellipsis",
 			paragraph: "Wait... The storm is coming. Go inside.",
 			selected:  "storm",
-			want:      "The storm is coming.",
+			want:      "Wait... The storm is coming. Go inside.",
 		},
 		{
 			name:      "no terminal",
@@ -107,7 +107,13 @@ func TestExtractSentence(t *testing.T) {
 			name:      "utf16 surrogate before selection",
 			paragraph: "😀 Intro. The storm came quickly. Done.",
 			selected:  "storm",
-			want:      "The storm came quickly.",
+			want:      "😀 Intro. The storm came quickly. Done.",
+		},
+		{
+			name:      "short narration before direct quote",
+			paragraph: "Tomohiko scoffed. “Quicker to just write it out by hand.”",
+			selected:  "scoffed",
+			want:      "Tomohiko scoffed. “Quicker to just write it out by hand.”",
 		},
 	}
 
@@ -138,6 +144,45 @@ func TestExtractSentence(t *testing.T) {
 				t.Fatalf("offsets do not map to original selection: result=%+v selection=[%d,%d)", got, start, end)
 			}
 		})
+	}
+}
+
+func TestExtractSentenceExpandsShortSentenceWithPartialContext(t *testing.T) {
+	paragraph := strings.Repeat("A", 50) + ". Tiny hit. " + strings.Repeat("B", 50) + "."
+	start := utf16Index(paragraph, "hit")
+	end := start + utf16Len("hit")
+
+	got, err := ExtractSentence(paragraph, start, end)
+	if err != nil {
+		t.Fatalf("ExtractSentence() error = %v", err)
+	}
+	want := strings.Repeat("A", 38) + ". Tiny hit. " + strings.Repeat("B", 39)
+	if got.Sentence != want {
+		t.Fatalf("sentence = %q, want %q", got.Sentence, want)
+	}
+	if got.SentenceStart != 12 || got.SentenceEnd != 101 {
+		t.Fatalf("expanded range = [%d,%d), want [12,101)", got.SentenceStart, got.SentenceEnd)
+	}
+	if selected := utf16SliceForTest(got.Sentence, got.HighlightStart, got.HighlightEnd); selected != "hit" {
+		t.Fatalf("highlight = %q, want %q", selected, "hit")
+	}
+}
+
+func TestExtractSentenceExpansionKeepsUTF16Boundaries(t *testing.T) {
+	paragraph := strings.Repeat("😀", 45) + ". Tiny hit. " + strings.Repeat("😀", 45) + "."
+	start := utf16Index(paragraph, "hit")
+	end := start + utf16Len("hit")
+
+	got, err := ExtractSentence(paragraph, start, end)
+	if err != nil {
+		t.Fatalf("ExtractSentence() error = %v", err)
+	}
+	want := strings.Repeat("😀", 38) + ". Tiny hit. " + strings.Repeat("😀", 39)
+	if got.Sentence != want {
+		t.Fatalf("sentence = %q, want %q", got.Sentence, want)
+	}
+	if got.SentenceStart+got.HighlightStart != start || got.SentenceStart+got.HighlightEnd != end {
+		t.Fatalf("offsets do not map to original selection: result=%+v selection=[%d,%d)", got, start, end)
 	}
 }
 

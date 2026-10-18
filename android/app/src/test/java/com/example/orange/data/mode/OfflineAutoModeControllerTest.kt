@@ -7,6 +7,10 @@ class OfflineAutoModeControllerTest {
     @Test
     fun networkState_drivesOfflineModeInBothDirections() {
         assertEquals(
+            OfflineNetworkAction.STAY_ONLINE,
+            offlineNetworkAction(AppMode.NORMAL, internetAvailable = true),
+        )
+        assertEquals(
             OfflineNetworkAction.ENABLE_OFFLINE,
             offlineNetworkAction(AppMode.NORMAL, internetAvailable = false),
         )
@@ -22,6 +26,12 @@ class OfflineAutoModeControllerTest {
             OfflineNetworkAction.STAY_OFFLINE,
             offlineNetworkAction(AppMode.OFFLINE, internetAvailable = false),
         )
+    }
+
+    @Test
+    fun initialNetworkCheck_waitsLongerThanSubsequentChanges() {
+        assertEquals(3_000L, offlineNetworkCheckDelayMillis(initialCheckCompleted = false))
+        assertEquals(1_000L, offlineNetworkCheckDelayMillis(initialCheckCompleted = true))
     }
 
     @Test

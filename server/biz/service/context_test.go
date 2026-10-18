@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"aaa_word/biz/db"
 	"aaa_word/biz/model"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -117,6 +118,13 @@ func TestContextTaskDedupeKey(t *testing.T) {
 	if ContextTaskDedupeKey(base) == ContextTaskDedupeKey(&otherItem) {
 		t.Fatal("different item produced same key")
 	}
+
+	if contextTaskDedupeKey(base, "rule_en_v3") == contextTaskDedupeKey(base, "rule_en_v4") {
+		t.Fatal("different splitter versions produced same key")
+	}
+	if contextTaskDedupeKey(base, "rule_en_v4") != contextTaskDedupeKey(&same, "rule_en_v4") {
+		t.Fatal("same request and splitter version produced different keys")
+	}
 }
 
 func TestContextDedupeKey(t *testing.T) {
@@ -126,6 +134,28 @@ func TestContextDedupeKey(t *testing.T) {
 	}
 	if key == ContextDedupeKey("word", 1, "Different sentence.", 0, 9) {
 		t.Fatal("different context produced same key")
+	}
+}
+
+func TestCanRetryContextTask(t *testing.T) {
+	tests := []struct {
+		name      string
+		task      *db.ContextTask
+		wantRetry bool
+	}{
+		{name: "first failure", task: &db.ContextTask{Status: ContextTaskFailed, Attempts: 1}, wantRetry: true},
+		{name: "second failure", task: &db.ContextTask{Status: ContextTaskFailed, Attempts: 2}, wantRetry: true},
+		{name: "exhausted", task: &db.ContextTask{Status: ContextTaskFailed, Attempts: 3}},
+		{name: "processing", task: &db.ContextTask{Status: ContextTaskProcessing, Attempts: 1}},
+		{name: "nil task"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := canRetryContextTask(tt.task); got != tt.wantRetry {
+				t.Fatalf("canRetryContextTask() = %t, want %t", got, tt.wantRetry)
+			}
+		})
 	}
 }
 

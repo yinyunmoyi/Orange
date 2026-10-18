@@ -13,10 +13,15 @@ import java.util.concurrent.TimeUnit
 object StandaloneSyncScheduler {
     fun start(context: Context) {
         StandaloneRepository.init(context)
-        if (NetworkAccessPolicy.isAllowed() && !StandaloneRepository.isEnabled()) enqueue(context)
+        if (NetworkAccessPolicy.isAllowed() && !StandaloneRepository.isEnabled()) {
+            enqueue(context, ExistingWorkPolicy.REPLACE)
+        }
     }
 
-    fun enqueue(context: Context) {
+    fun enqueue(
+        context: Context,
+        policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
+    ) {
         if (!NetworkAccessPolicy.isAllowed()) return
         val request = OneTimeWorkRequestBuilder<StandaloneSyncWorker>()
             .setConstraints(
@@ -28,7 +33,7 @@ object StandaloneSyncScheduler {
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             UNIQUE_WORK,
-            ExistingWorkPolicy.KEEP,
+            policy,
             request,
         )
     }

@@ -1,39 +1,19 @@
 package com.example.orange.data.contextsync
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.orange.data.network.NetworkAccessPolicy
-import java.util.concurrent.atomic.AtomicBoolean
 
 object ContextVideoSyncScheduler {
-    private val callbackRegistered = AtomicBoolean(false)
-
     fun start(context: Context) {
         if (!NetworkAccessPolicy.isAllowed()) return
         val appContext = context.applicationContext
-        if (!ContextVideoSyncWorker.hasLocalNetworkPermission(appContext)) return
+        if (!ContextSyncConnectionManager.hasLocalNetworkPermission(appContext)) return
         enqueue(appContext)
-        if (!callbackRegistered.compareAndSet(false, true)) return
-        val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
-        val request = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .build()
-        connectivity.registerNetworkCallback(
-            request,
-            object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    enqueue(appContext)
-                }
-            },
-        )
     }
 
     fun enqueue(context: Context) {
