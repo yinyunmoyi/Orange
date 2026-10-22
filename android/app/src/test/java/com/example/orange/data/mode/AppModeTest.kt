@@ -16,7 +16,20 @@ class AppModeTest {
 
     @Test
     fun savedMode_winsOverLegacyPreference() {
-        assertEquals(AppMode.OFFLINE, resolveInitialMode("OFFLINE", legacyEnabled = true))
+        assertEquals(AppMode.NORMAL, resolveInitialMode("NORMAL", legacyEnabled = true))
+    }
+
+    @Test
+    fun savedOfflineMode_isTreatedAsUnknownAndStartsOnline() {
+        assertEquals(AppMode.NORMAL, resolveInitialMode("OFFLINE", legacyEnabled = false))
+        assertEquals(AppMode.STANDALONE, resolveInitialMode("OFFLINE", legacyEnabled = true))
+    }
+
+    @Test
+    fun offlineMode_isRuntimeOnly() {
+        assertEquals(AppMode.NORMAL, persistentMode(AppMode.NORMAL))
+        assertEquals(AppMode.STANDALONE, persistentMode(AppMode.STANDALONE))
+        assertEquals(null, persistentMode(AppMode.OFFLINE))
     }
 
     @Test

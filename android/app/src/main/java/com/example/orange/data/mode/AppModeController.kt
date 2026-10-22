@@ -10,6 +10,7 @@ import com.example.orange.data.logging.AppLog
 import com.example.orange.data.network.NetworkAccessPolicy
 import com.example.orange.data.offline.OfflineCapabilityRepository
 import com.example.orange.data.offline.OfflineEngineSession
+import com.example.orange.data.reverselan.ReverseLanManager
 import com.example.orange.data.standalone.StandaloneRepository
 import com.example.orange.data.standalone.StandaloneSyncScheduler
 import kotlinx.coroutines.sync.Mutex
@@ -25,6 +26,7 @@ object AppModeController {
                 "Offline capability has not been verified"
             }
             val previousMode = AppModeRepository.current()
+            ReverseLanManager.stopAndAwait("offline")
             NetworkAccessPolicy.setOffline(true)
             ContextSyncConnectionManager.pause()
             cancelNetworkWork(appContext)

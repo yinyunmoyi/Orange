@@ -69,6 +69,8 @@ func Register(h *server.Hertz) {
 		standaloneSync.POST("/favorites", handler.SyncStandaloneFavorite)
 	}
 
+	h.POST("/api/v1/reverse-lan/registrations", handler.RegisterReverseLanClient)
+
 	sentenceFavorites := h.Group("/api/v1/sentences/favorites")
 	{
 		sentenceFavorites.POST("", handler.SaveSentenceFavorite)

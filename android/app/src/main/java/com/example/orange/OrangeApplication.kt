@@ -14,6 +14,7 @@ import com.example.orange.data.mode.AppModeRepository
 import com.example.orange.data.mode.OfflineAutoModeController
 import com.example.orange.data.offline.OfflineCapabilityRepository
 import com.example.orange.data.offline.OfflineEngineSession
+import com.example.orange.data.reverselan.ReverseLanManager
 import com.example.orange.data.standalone.StandaloneRepository
 import com.example.orange.data.standalone.StandaloneSyncScheduler
 import com.example.orange.data.word.WordServiceConfig
@@ -24,6 +25,7 @@ class OrangeApplication : Application() {
         AppModeController.initialize(this)
         WordServiceConfig.init(this)
         AppLog.init(this)
+        ReverseLanManager.initialize(this)
         StandaloneRepository.init(this)
         OfflineCapabilityRepository.init(this)
         OfflineEngineSession.init(this)

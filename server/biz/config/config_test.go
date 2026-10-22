@@ -35,6 +35,7 @@ func TestTypedConfigParsing(t *testing.T) {
 		t.Setenv("SERVER_MAX_REQUEST_BODY_BYTES", "4096")
 		t.Setenv("LLM_TIMEOUT_SECONDS", "45")
 		t.Setenv("CORS_ALLOWED_ORIGINS", "https://a.example, https://b.example")
+		t.Setenv("REVERSE_LAN_ENABLED", "true")
 
 		if got := ServerPort(); got != 9090 {
 			t.Fatalf("ServerPort() = %d, want 9090", got)
@@ -47,6 +48,9 @@ func TestTypedConfigParsing(t *testing.T) {
 		}
 		if got := CORSAllowedOrigins(); len(got) != 2 || got[1] != "https://b.example" {
 			t.Fatalf("CORSAllowedOrigins() = %#v", got)
+		}
+		if !ReverseLanEnabled() {
+			t.Fatal("ReverseLanEnabled() = false, want true")
 		}
 	})
 
@@ -70,6 +74,13 @@ func TestTypedConfigParsing(t *testing.T) {
 		t.Setenv("LLM_API_URL", "file:///tmp/private")
 		if got := LLMAPIURL(); got != "https://api.deepseek.com/chat/completions" {
 			t.Fatalf("LLMAPIURL() = %q", got)
+		}
+	})
+
+	t.Run("invalid boolean uses default", func(t *testing.T) {
+		t.Setenv("REVERSE_LAN_ENABLED", "sometimes")
+		if ReverseLanEnabled() {
+			t.Fatal("ReverseLanEnabled() = true, want safe default false")
 		}
 	})
 }

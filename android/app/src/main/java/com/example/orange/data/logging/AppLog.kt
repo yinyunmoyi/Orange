@@ -96,8 +96,9 @@ object AppLog {
         message: String,
         data: JSONObject = JSONObject(),
         traceId: String? = null,
+        immediateUpload: Boolean = false,
     ) {
-        enqueue("INFO", tag, message, data, traceId, null)
+        enqueue("INFO", tag, message, data, traceId, null, immediateUpload)
     }
 
     fun flush() {

@@ -29,7 +29,9 @@ object AppModeRepository {
 
     fun set(mode: AppMode) {
         checkInitialized()
-        preferences.edit().putString(KEY_MODE, mode.name).apply()
+        persistentMode(mode)?.let {
+            preferences.edit().putString(KEY_MODE, it.name).apply()
+        }
         mutableMode.value = mode
     }
 
@@ -56,4 +58,8 @@ object AppModeRepository {
 internal fun resolveInitialMode(savedMode: String?, legacyEnabled: Boolean): AppMode =
     savedMode
         ?.let { runCatching { AppMode.valueOf(it) }.getOrNull() }
+        ?.takeIf { it != AppMode.OFFLINE }
         ?: if (legacyEnabled) AppMode.STANDALONE else AppMode.NORMAL
+
+internal fun persistentMode(mode: AppMode): AppMode? =
+    mode.takeIf { it != AppMode.OFFLINE }

@@ -68,6 +68,11 @@ android {
             "ANDROID_LLM_MODEL",
             envValue("ANDROID_LLM_MODEL", envValue("LLM_MODEL", "deepseek-v4-pro")).asBuildConfigString(),
         )
+        buildConfigField(
+            "boolean",
+            "REVERSE_LAN_ENABLED",
+            envValue("REVERSE_LAN_ENABLED", "false").toBooleanStrictOrNull()?.toString() ?: "false",
+        )
     }
 
     buildTypes {
@@ -100,6 +105,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.litert.lm.android)
+    implementation(libs.nanohttpd)
     testImplementation(libs.junit)
     testImplementation(libs.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))

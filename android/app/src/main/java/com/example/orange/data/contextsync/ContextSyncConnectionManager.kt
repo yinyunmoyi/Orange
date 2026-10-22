@@ -15,6 +15,7 @@ import com.example.orange.data.logging.AppLog
 import com.example.orange.data.mode.AppMode
 import com.example.orange.data.mode.AppModeRepository
 import com.example.orange.data.network.NetworkAccessPolicy
+import com.example.orange.data.reverselan.ReverseLanManager
 import com.example.orange.data.standalone.StandaloneSyncScheduler
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -49,6 +50,11 @@ object ContextSyncConnectionManager {
 
     private var refreshJob: Job? = null
     private var monitorJob: Job? = null
+    private var consecutiveConnectFailures = 0
+    private var consecutiveForwardSuccesses = 0
+
+    @Volatile
+    private var trustedPresence: ContextSyncPresence? = null
 
     fun start(context: Context) {
         val appContext = context.applicationContext
@@ -88,6 +94,7 @@ object ContextSyncConnectionManager {
         }
         if (didPause) {
             AppLog.event(TAG, "monitor_paused")
+            scope.launch { ReverseLanManager.stopAndAwait("connection_manager_paused") }
         }
     }
 
@@ -167,61 +174,132 @@ object ContextSyncConnectionManager {
         refreshMutex.withLock {
             val context = applicationContext ?: return@withLock null
             if (!isCurrent(targetGeneration) || !isEligibleWifi(context)) {
+                trustedPresence = null
+                consecutiveConnectFailures = 0
+                consecutiveForwardSuccesses = 0
+                ReverseLanManager.stopAndAwait("wifi_unavailable")
                 clearEndpointIfCurrent(context, targetGeneration, "wifi_unavailable")
                 return@withLock null
             }
 
             val preferences = ContextSyncPreferences(context)
-            val trustedServerId = preferences.serverId
+            var trustedServerId = preferences.serverId
             val cachedOrigin = preferences.localOrigin
             if (cachedOrigin != null && trustedServerId != null) {
-                val pingId = ContextVideoSyncApi.ping(cachedOrigin).getOrNull()
+                val cachedProbe = ContextVideoSyncApi.probe(cachedOrigin, trustedServerId)
                 if (!isCurrent(targetGeneration)) return@withLock null
-                if (ContextSyncDiscovery.serverIdsMatch(trustedServerId, pingId)) {
-                    return@withLock ContextSyncEndpoint(cachedOrigin, trustedServerId)
-                }
-                if (preferences.clearEndpoint(cachedOrigin)) {
-                    logEndpointCleared(cachedOrigin, "health_check_failed", targetGeneration)
+                if (cachedProbe is ForwardProbeResult.Verified) {
+                    trustedPresence = null
+                    return@withLock acceptVerifiedEndpoint(
+                        context,
+                        preferences,
+                        ContextSyncEndpoint(cachedOrigin, trustedServerId),
+                        targetGeneration,
+                        reason,
+                    )
                 }
             }
-
-            val endpoint = try {
-                ContextSyncDiscovery(context).discoverCandidate()
+            val presence = try {
+                ContextSyncDiscovery(context).discoverPresence()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 AppLog.w(TAG, "discovery failed reason=$reason generation=$targetGeneration", error)
                 null
             }
-            if (
-                endpoint == null ||
-                !shouldAcceptEndpoint(
-                    currentGeneration = generation.get(),
-                    candidateGeneration = targetGeneration,
-                    paused = paused,
-                    networkAllowed = NetworkAccessPolicy.isAllowed(),
-                    trustedServerId = ContextSyncPreferences(context).serverId,
-                    candidate = endpoint,
-                )
-            ) {
+            if (!isCurrent(targetGeneration)) return@withLock null
+            trustedServerId = preferences.serverId
+            trustedPresence = presence
+            if (trustedServerId == null) {
+                consecutiveConnectFailures = 0
+                consecutiveForwardSuccesses = 0
+                ReverseLanManager.stopAndAwait("trusted_identity_unavailable")
                 return@withLock null
             }
 
-            val changed = preferences.saveEndpoint(endpoint.origin, endpoint.serverId)
-            if (changed) {
+            val endpoints = buildList {
+                presence?.endpoints()?.let(::addAll)
+            }.distinctBy(ContextSyncEndpoint::origin)
+            val probeResults = mutableListOf<ForwardProbeResult>()
+            var endpoint: ContextSyncEndpoint? = null
+            for (candidate in endpoints) {
+                val probe = ContextVideoSyncApi.probe(candidate.origin, trustedServerId)
+                if (!isCurrent(targetGeneration)) return@withLock null
+                probeResults += probe
+                if (probe is ForwardProbeResult.Verified) {
+                    endpoint = candidate
+                    break
+                }
+            }
+            if (endpoint == null) {
+                if (cachedOrigin != null && preferences.clearEndpoint(cachedOrigin)) {
+                    logEndpointCleared(cachedOrigin, "health_check_failed", targetGeneration)
+                }
+                consecutiveForwardSuccesses = 0
+                val previousFailures = consecutiveConnectFailures
+                consecutiveConnectFailures = nextConnectFailureCount(
+                    previousFailures,
+                    presence != null,
+                    probeResults,
+                )
+                val connectFailure = consecutiveConnectFailures > previousFailures
                 AppLog.event(
                     TAG,
-                    "endpoint_verified",
+                    "forward_probe_failed",
                     JSONObject()
-                        .put("origin", endpoint.origin)
-                        .put("serverIdPrefix", endpoint.serverId.take(8))
-                        .put("generation", targetGeneration)
-                        .put("reason", reason),
+                        .put("presence", presence != null)
+                        .put("connectFailures", consecutiveConnectFailures)
+                        .put("generation", targetGeneration),
+                    immediateUpload = true,
                 )
-                enqueueDependentWork(context)
+                when {
+                    presence == null ->
+                        ReverseLanManager.stopAndAwait("trusted_presence_absent")
+                    consecutiveConnectFailures >= REVERSE_ACTIVATION_FAILURES ->
+                        ReverseLanManager.activate(trustedServerId)
+                    !connectFailure ->
+                        ReverseLanManager.stopAndAwait("forward_probe_rejected")
+                }
+                return@withLock null
             }
-            endpoint
+
+            acceptVerifiedEndpoint(
+                context,
+                preferences,
+                endpoint,
+                targetGeneration,
+                reason,
+            )
         }
+
+    private suspend fun acceptVerifiedEndpoint(
+        context: Context,
+        preferences: ContextSyncPreferences,
+        endpoint: ContextSyncEndpoint,
+        targetGeneration: Long,
+        reason: String,
+    ): ContextSyncEndpoint {
+        consecutiveConnectFailures = 0
+        consecutiveForwardSuccesses += 1
+        val changed = preferences.saveEndpoint(endpoint.origin, endpoint.serverId)
+        if (changed) {
+            AppLog.event(
+                TAG,
+                "endpoint_verified",
+                JSONObject()
+                    .put("origin", endpoint.origin)
+                    .put("serverIdPrefix", endpoint.serverId.take(8))
+                    .put("generation", targetGeneration)
+                    .put("reason", reason),
+                immediateUpload = true,
+            )
+            enqueueDependentWork(context)
+        }
+        if (consecutiveForwardSuccesses >= FORWARD_RECOVERY_SUCCESSES) {
+            ReverseLanManager.deactivateAfterDrain("forward_recovered")
+        }
+        return endpoint
+    }
 
     private fun clearEndpointIfCurrent(context: Context, targetGeneration: Long, reason: String) {
         if (!isCurrent(targetGeneration)) return
@@ -240,6 +318,7 @@ object ContextSyncConnectionManager {
                 .put("origin", origin)
                 .put("reason", reason)
                 .put("generation", targetGeneration),
+            immediateUpload = true,
         )
     }
 
@@ -287,4 +366,22 @@ object ContextSyncConnectionManager {
         isGenerationCurrent(currentGeneration, candidateGeneration, paused, networkAllowed) &&
             trustedServerId != null &&
             ContextSyncDiscovery.serverIdsMatch(trustedServerId, candidate.serverId)
+
+    internal fun nextConnectFailureCount(
+        previous: Int,
+        presenceAvailable: Boolean,
+        results: List<ForwardProbeResult>,
+    ): Int =
+        if (
+            presenceAvailable &&
+            results.isNotEmpty() &&
+            results.all { it is ForwardProbeResult.ConnectFailed }
+        ) {
+            previous + 1
+        } else {
+            0
+        }
+
+    private const val REVERSE_ACTIVATION_FAILURES = 2
+    private const val FORWARD_RECOVERY_SUCCESSES = 2
 }

@@ -1,5 +1,7 @@
 package com.example.orange.data.contextsync
 
+import java.net.ConnectException
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,6 +58,44 @@ class ContextSyncConnectionManagerTest {
                 networkAllowed = true,
                 trustedServerId = "fedcba9876543210fedcba9876543210",
                 candidate = endpoint,
+            ),
+        )
+    }
+
+    @Test
+    fun reverseActivationCount_requiresConsecutiveConnectFailuresWithPresence() {
+        val connectFailure = ForwardProbeResult.ConnectFailed(
+            phase = "connect_or_response_headers",
+            cause = ConnectException("blocked"),
+        )
+
+        val first = ContextSyncConnectionManager.nextConnectFailureCount(
+            previous = 0,
+            presenceAvailable = true,
+            results = listOf(connectFailure),
+        )
+        val second = ContextSyncConnectionManager.nextConnectFailureCount(
+            previous = first,
+            presenceAvailable = true,
+            results = listOf(connectFailure),
+        )
+
+        assertEquals(1, first)
+        assertEquals(2, second)
+        assertEquals(
+            0,
+            ContextSyncConnectionManager.nextConnectFailureCount(
+                previous = second,
+                presenceAvailable = true,
+                results = listOf(ForwardProbeResult.HttpFailed(503)),
+            ),
+        )
+        assertEquals(
+            0,
+            ContextSyncConnectionManager.nextConnectFailureCount(
+                previous = second,
+                presenceAvailable = false,
+                results = listOf(connectFailure),
             ),
         )
     }

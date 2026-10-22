@@ -20,6 +20,8 @@ import (
 	"aaa_word/biz/db"
 	"aaa_word/biz/dict"
 	"aaa_word/biz/discovery"
+	"aaa_word/biz/handler"
+	"aaa_word/biz/reverselan"
 	"aaa_word/biz/router"
 	"aaa_word/biz/syncidentity"
 
@@ -83,6 +85,32 @@ func main() {
 				log.Printf("[context-video-sync] mDNS shutdown finished")
 			}
 		}()
+	}
+
+	handler.ConfigureReverseLanRegistration(false, nil)
+	if config.ReverseLanEnabled() {
+		serverID, err := syncidentity.Current()
+		if err != nil {
+			log.Printf("[reverse-lan] load server identity failed: %v", err)
+		} else {
+			registry := reverselan.NewRegistry(
+				serverID,
+				reverselan.DefaultTicketTTL,
+				reverselan.DefaultTicketCapacity,
+			)
+			reverseRuntime, startErr := reverselan.StartRuntime(serverID, port, registry)
+			if startErr != nil {
+				log.Printf("[reverse-lan] runtime start failed: %v", startErr)
+			} else {
+				handler.ConfigureReverseLanRegistration(true, registry)
+				defer func() {
+					handler.ConfigureReverseLanRegistration(false, nil)
+					reverseRuntime.Shutdown()
+					log.Printf("[reverse-lan] runtime shutdown finished")
+				}()
+				log.Printf("[reverse-lan] runtime started")
+			}
+		}
 	}
 
 	h := server.Default(

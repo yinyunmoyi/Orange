@@ -132,6 +132,16 @@ func DurationSeconds(key string, def time.Duration) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
+func Bool(key string, def bool) bool {
+	raw := strings.TrimSpace(Get(key, strconv.FormatBool(def)))
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		invalid(key, "expected boolean")
+		return def
+	}
+	return value
+}
+
 func CSV(key string, def []string) []string {
 	raw := Get(key, strings.Join(def, ","))
 	values := make([]string, 0)
@@ -150,6 +160,7 @@ func CSV(key string, def []string) []string {
 func ServerHost() string               { return Get("SERVER_HOST", "0.0.0.0") }
 func ServerPort() int                  { return Port("SERVER_PORT", 8888) }
 func ServerMaxRequestBodyBytes() int64 { return PositiveInt64("SERVER_MAX_REQUEST_BODY_BYTES", 8<<30) }
+func ReverseLanEnabled() bool          { return Bool("REVERSE_LAN_ENABLED", false) }
 func CORSAllowedOrigins() []string {
 	return CSV("CORS_ALLOWED_ORIGINS", []string{"http://localhost:5173", "http://127.0.0.1:5173"})
 }

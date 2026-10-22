@@ -25,6 +25,26 @@ data class ContextSyncEndpoint(
     val serverId: String,
 )
 
+data class ContextSyncPresence(
+    val serverId: String,
+    val addresses: List<InetAddress>,
+    val port: Int,
+) {
+    fun endpoints(): List<ContextSyncEndpoint> = addresses
+        .filter { ContextSyncDiscovery.isAllowedLanAddress(it) }
+        .sortedBy { if (it is Inet4Address) 0 else 1 }
+        .mapNotNull { address ->
+            val rawHost = address.hostAddress ?: return@mapNotNull null
+            val host = if (address is Inet6Address) {
+                "[${rawHost.replace("%", "%25")}]"
+            } else {
+                rawHost
+            }
+            ContextSyncEndpoint("http://$host:$port", serverId)
+        }
+        .distinctBy(ContextSyncEndpoint::origin)
+}
+
 class ContextSyncDiscovery(private val context: Context) {
     private val preferences = ContextSyncPreferences(context)
 
@@ -58,8 +78,8 @@ class ContextSyncDiscovery(private val context: Context) {
             logRejected("cached_ping_failed", cachedOrigin, started)
         }
 
-        val candidate = discoverWithNsd(trustedServerId)
-        if (candidate == null) {
+        val presence = discoverPresence(trustedServerId)
+        if (presence == null) {
             val now = SystemClock.elapsedRealtime()
             if (shouldLogTimeout(now)) {
                 Log.event(
@@ -70,20 +90,23 @@ class ContextSyncDiscovery(private val context: Context) {
             }
             return null
         }
-        val pingId = ContextVideoSyncApi.ping(candidate.origin).getOrNull()
-        if (!serverIdsMatch(trustedServerId, pingId)) {
-            logRejected("candidate_ping_failed", candidate.origin, started)
-            return null
+        for (candidate in presence.endpoints()) {
+            when (ContextVideoSyncApi.probe(candidate.origin, trustedServerId)) {
+                is ForwardProbeResult.Verified -> {
+                    Log.event(
+                        TAG,
+                        "candidate_verified",
+                        JSONObject()
+                            .put("origin", candidate.origin)
+                            .put("serverIdPrefix", trustedServerId.take(8))
+                            .put("durationMs", SystemClock.elapsedRealtime() - started),
+                    )
+                    return candidate
+                }
+                else -> logRejected("candidate_ping_failed", candidate.origin, started)
+            }
         }
-        Log.event(
-            TAG,
-            "candidate_verified",
-            JSONObject()
-                .put("origin", candidate.origin)
-                .put("serverIdPrefix", trustedServerId.take(8))
-                .put("durationMs", SystemClock.elapsedRealtime() - started),
-        )
-        return candidate
+        return null
     }
 
     private fun logRejected(reason: String, origin: String?, started: Long) {
@@ -106,7 +129,13 @@ class ContextSyncDiscovery(private val context: Context) {
         return preferences.trustServerIdIfAbsent(publicServerId)
     }
 
-    private suspend fun discoverWithNsd(trustedServerId: String): ContextSyncEndpoint? {
+    internal suspend fun discoverPresence(): ContextSyncPresence? {
+        NetworkAccessPolicy.requireAllowed()
+        val trustedServerId = trustedServerId() ?: return null
+        return discoverPresence(trustedServerId)
+    }
+
+    private suspend fun discoverPresence(trustedServerId: String): ContextSyncPresence? {
         NetworkAccessPolicy.requireAllowed()
         val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
         val lock = wifi?.createMulticastLock("orange-context-sync")?.apply {
@@ -114,14 +143,14 @@ class ContextSyncDiscovery(private val context: Context) {
             acquire()
         }
         return try {
-            withTimeoutOrNull(3_000) { awaitNsdCandidate(trustedServerId) }
+            withTimeoutOrNull(3_000) { awaitNsdPresence(trustedServerId) }
         } finally {
             if (lock?.isHeld == true) lock.release()
         }
     }
 
     @Suppress("DEPRECATION")
-    private suspend fun awaitNsdCandidate(trustedServerId: String): ContextSyncEndpoint? =
+    private suspend fun awaitNsdPresence(trustedServerId: String): ContextSyncPresence? =
         suspendCancellableCoroutine { continuation ->
             val manager = context.getSystemService(NsdManager::class.java)
             val completed = AtomicBoolean(false)
@@ -131,7 +160,7 @@ class ContextSyncDiscovery(private val context: Context) {
             lateinit var listener: NsdManager.DiscoveryListener
             lateinit var resolveNext: () -> Unit
 
-            fun finish(value: ContextSyncEndpoint?) {
+            fun finish(value: ContextSyncPresence?) {
                 if (!completed.compareAndSet(false, true)) return
                 runCatching { manager.stopServiceDiscovery(listener) }
                 if (continuation.isActive) continuation.resume(value)
@@ -159,12 +188,12 @@ class ContextSyncDiscovery(private val context: Context) {
                             }
 
                             override fun onServiceResolved(info: NsdServiceInfo) {
-                                val endpoint = selectTrustedEndpoint(
+                                val presence = presenceFromService(
                                     trustedServerId,
-                                    endpointsFromService(info),
+                                    info,
                                 )
-                                if (endpoint != null) {
-                                    finish(endpoint)
+                                if (presence != null) {
+                                    finish(presence)
                                     return
                                 }
                                 synchronized(resolutionLock) { resolving = false }
@@ -211,27 +240,30 @@ class ContextSyncDiscovery(private val context: Context) {
         }
 
     @Suppress("DEPRECATION")
-    private fun endpointsFromService(info: NsdServiceInfo): List<ContextSyncEndpoint> {
+    private fun presenceFromService(
+        trustedServerId: String,
+        info: NsdServiceInfo,
+    ): ContextSyncPresence? {
         val serverId = info.attributes["id"]?.toString(Charsets.UTF_8)?.trim().orEmpty()
         val api = info.attributes["api"]?.toString(Charsets.UTF_8)?.trim()
-        if (serverId.isEmpty() || api != "1" || info.port !in 1..65535) return emptyList()
+        if (
+            !serverIdsMatch(trustedServerId, serverId) ||
+            api != "1" ||
+            info.port !in 1..65535
+        ) {
+            return null
+        }
         val addresses = if (Build.VERSION.SDK_INT >= 34) {
             info.hostAddresses
         } else {
             listOfNotNull(info.host)
         }
-        return addresses
+        val allowed = addresses
             .filter(::isAllowedLanAddress)
             .sortedBy { if (it is Inet4Address) 0 else 1 }
-            .map { address ->
-                val host = if (address is Inet6Address) {
-                    "[${address.hostAddress?.replace("%", "%25")}]"
-                } else {
-                    address.hostAddress
-                }
-                ContextSyncEndpoint("http://$host:${info.port}", serverId)
-            }
-            .distinctBy { it.origin }
+            .distinctBy { it.hostAddress }
+        if (allowed.isEmpty()) return null
+        return ContextSyncPresence(serverId, allowed, info.port)
     }
 
     companion object {
